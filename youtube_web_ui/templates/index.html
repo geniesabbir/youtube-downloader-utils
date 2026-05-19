@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Void-Downloader | Premium YT Downloader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="background-elements">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container nav-content">
+            <div class="logo">
+                <span class="logo-icon">⚡</span>
+                <span class="logo-text">Void-Downloader</span>
+            </div>
+            <div class="nav-links">
+                <a href="#downloader" class="nav-link">App</a>
+                <a href="#features" class="nav-link">Features</a>
+                <button id="app-reset-btn" class="icon-btn-small" title="Reset App">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"></path></svg>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero visible">
+        <div class="container hero-content">
+            <h1 class="hero-title">Preserve Your Knowledge.<br><span class="gradient-text">Offline & Forever.</span></h1>
+            <p class="hero-subtitle">High-speed lecture downloader designed for students in low-connectivity areas. Crystal clear video, pristine audio, zero distractions.</p>
+            <div class="hero-actions">
+                <a href="#downloader" class="primary-btn hero-btn">Start Downloading</a>
+                <a href="#features" class="secondary-btn hero-btn">Learn More</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- App Section -->
+    <section id="downloader" class="downloader-section visible">
+        <div class="container">
+            <div class="downloader-card glass-panel">
+                <div class="card-header">
+                    <h2>Video Workspace</h2>
+                    <p>Enter your lecture URL below to analyze streams.</p>
+                </div>
+
+                <div class="input-group main-input">
+                    <input type="text" id="url-input" placeholder="Paste YouTube lecture link here..." autocomplete="off">
+                    <button id="fetch-btn" class="primary-btn">Analyze Link</button>
+                </div>
+
+                <!-- States remain the same but styled better -->
+                <div id="loading-state" class="state-container hidden">
+                    <div class="spinner"></div>
+                    <p>Extracting high-quality metadata...</p>
+                </div>
+
+                <div id="error-state" class="state-container hidden">
+                    <p class="error-msg" id="error-text">An error occurred.</p>
+                </div>
+
+                <div id="video-info" class="video-info hidden">
+                    <div class="video-grid">
+                        <div class="thumbnail-container">
+                            <img id="video-thumbnail" src="" alt="Video Thumbnail">
+                        </div>
+                        <div class="video-details">
+                            <h3 id="video-title">Video Title</h3>
+                            
+                            <div class="mode-selector">
+                                <button class="mode-btn active" data-mode="both">Video + Audio</button>
+                                <button class="mode-btn" data-mode="video">Video Only</button>
+                                <button class="mode-btn" data-mode="audio">Audio Only</button>
+                            </div>
+
+                            <div class="quality-selector">
+                                <label for="format-select">Format & Quality</label>
+                                <div class="select-wrapper">
+                                    <select id="format-select">
+                                        <!-- Options injected via JS -->
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="download-plan" class="download-plan hidden">
+                        <p class="plan-title">Processing Sequence</p>
+                        <ul id="plan-steps-list">
+                            <!-- Steps will be injected here -->
+                        </ul>
+                    </div>
+
+                    <button id="download-btn" class="primary-btn download-action">
+                        Download Now
+                    </button>
+
+                    <div id="progress-container" class="progress-container hidden">
+                        <div class="progress-header">
+                            <span id="progress-status">Preparing...</span>
+                            <span id="progress-percent">0%</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                        </div>
+                        <div class="progress-stats">
+                            <span id="progress-speed">-- MB/s</span>
+                            <span id="progress-eta">ETA: --:--</span>
+                        </div>
+                        <div class="progress-actions">
+                            <button id="cancel-download-btn" class="secondary-btn">Abort Download</button>
+                            <a id="save-device-btn" class="primary-btn hidden" style="text-decoration: none;">Save to Device</a>
+                        </div>
+                        <p class="success-message hidden" id="success-message">🎉 Lecture successfully processed! Click "Save to Device" to download.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section visible">
+        <div class="container">
+            <h2 class="section-title">Why Void-Downloader?</h2>
+            <div class="features-grid">
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon">🚀</div>
+                    <h3>Slow Net Optimized</h3>
+                    <p>Designed specifically for village-speed internet. Smart retry and fragment handling.</p>
+                </div>
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon">💎</div>
+                    <h3>Full HD & 4K</h3>
+                    <p>Automatically merges high-res video with the best audio for the ultimate clarity.</p>
+                </div>
+                <div class="feature-card glass-panel">
+                    <div class="feature-icon">🎧</div>
+                    <h3>Audio Extraction</h3>
+                    <p>Want to listen while commuting? Download just the audio and save massive data.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 Void-Downloader. Empowering students worldwide.</p>
+        </div>
+    </footer>
+
+    <!-- Custom Premium Modal -->
+    <div id="custom-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-panel">
+            <h3 id="modal-title">Confirmation</h3>
+            <p id="modal-message">Are you sure you want to proceed?</p>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="modal-btn secondary">Cancel</button>
+                <button id="modal-confirm" class="modal-btn primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+/* SIMPLE ROBUST TUI THEME */
+
+Screen {
+    background: #020617;
+    color: #e2e8f0;
+}
+
+#workspace {
+    padding: 1 2;
+    height: auto;
+}
+
+#system-status {
+    background: #0f172a;
+    color: #94a3b8;
+    padding: 0 1;
+    margin-bottom: 1;
+    border: solid #1e293b;
+}
+
+.panel-header {
+    color: #6366f1;
+    text-style: bold;
+    margin-top: 1;
+}
+
+#input-panel, #metadata-panel, #execution-panel {
+    background: #0f172a;
+    border: round #334155;
+    padding: 1 2;
+    margin-bottom: 1;
+    height: auto;
+}
+
+Input {
+    background: #020617;
+    border: tall #312e81;
+    color: #818cf8;
+}
+
+#analyze-btn {
+    background: #064e3b;
+    color: #10b981;
+    text-style: bold;
+    width: 100%;
+    margin-top: 1;
+}
+
+#download-btn {
+    background: #4338ca;
+    color: #f8fafc;
+    text-style: bold;
+    margin-top: 1;
+}
+
+ProgressBar {
+    color: #818cf8;
+    height: 1;
+    margin: 1 0;
+}
+
+ProgressBar > .progress--bar {
+    background: #6366f1;
+}
