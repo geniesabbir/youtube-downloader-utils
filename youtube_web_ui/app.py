@@ -258,4 +258,8 @@ def serve_file(task_id):
     return send_from_directory(download_dir, filename, as_attachment=True)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001, threaded=True)
+    host = os.getenv('HOST', '127.0.0.1')
+    port = int(os.getenv('PORT', '5001'))
+    debug = os.getenv('FLASK_DEBUG', '1').lower() in {'1', 'true', 'yes', 'on'}
+
+    app.run(host=host, port=port, debug=debug, threaded=True)

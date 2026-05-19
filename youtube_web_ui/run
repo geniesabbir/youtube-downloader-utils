@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+MODE="${1:-}"
+PORT="${PORT:-5001}"
+HOST="${HOST:-127.0.0.1}"
+
+ensure_venv() {
+    if [ ! -d "venv" ]; then
+        echo "Creating virtual environment..."
+        python3 -m venv venv
+    fi
+}
+
+ensure_requirements() {
+    echo "Checking requirements..."
+    ./venv/bin/pip install -r requirements.txt > /dev/null
+}
+
+start_dev() {
+    echo "Starting development server on http://${HOST}:${PORT}"
+    FLASK_DEBUG=1 HOST="$HOST" PORT="$PORT" ./venv/bin/python3 app.py
+}
+
+start_prod() {
+    echo "Starting local production-style server on http://${HOST}:${PORT}"
+    FLASK_DEBUG=0 HOST="$HOST" PORT="$PORT" ./venv/bin/python3 app.py
+}
+
+start_cloudflared() {
+    if ! command -v cloudflared >/dev/null 2>&1; then
+        echo "cloudflared is not installed."
+        exit 1
+    fi
+
+    echo "Starting local production-style server in background..."
+    FLASK_DEBUG=0 HOST=127.0.0.1 PORT="$PORT" ./venv/bin/python3 app.py &
+    APP_PID=$!
+
+    cleanup() {
+        echo
+        echo "Stopping services..."
+        kill "$APP_PID" 2>/dev/null || true
+    }
+
+    trap cleanup EXIT INT TERM
+
+    sleep 2
+    echo "Opening Cloudflare tunnel for http://127.0.0.1:${PORT}"
+    cloudflared tunnel --url "http://127.0.0.1:${PORT}"
+}
+
+case "$MODE" in
+    dev)
+        ensure_venv
+        ensure_requirements
+        start_dev
+        ;;
+    prod)
+        ensure_venv
+        ensure_requirements
+        start_prod
+        ;;
+    cloudflared)
+        ensure_venv
+        ensure_requirements
+        start_cloudflared
+        ;;
+    *)
+        cat <<'EOF'
+Usage:
+  ./run dev
+  ./run prod
+  ./run cloudflared
+
+Optional environment variables:
+  PORT=5001
+  HOST=127.0.0.1
+EOF
+        exit 1
+        ;;
+esac
