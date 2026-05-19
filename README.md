@@ -1,24 +1,77 @@
 # YouTube Downloader Utils
 
-Three small YouTube downloaders built for people with slow or unstable internet who need to save videos locally and watch later.
+A collection of lightweight YouTube downloader utilities built for people with slow or unstable internet connections who want to save videos and lectures for offline viewing.
 
-This repository contains:
+This repository includes three separate downloader experiences:
 
-- `youtube_downloader/`: a simple shell script downloader for fast one-off downloads
-- `youtube_tui/`: a terminal UI downloader built with Textual
-- `youtube_web_ui/`: a browser-based downloader built with Flask
+- a simple shell-based downloader
+- a terminal UI built with Textual
+- a web UI built with Flask
 
-All three tools use `yt-dlp` under the hood. For high-quality video+audio merging, `ffmpeg` is also required.
+All tools use `yt-dlp` as the download engine, with `ffmpeg` used for merging high-quality video and audio streams when needed.
 
-## Use Case
+## Why This Repo Exists
 
-These tools are aimed at:
+Streaming is not always practical. In many cases, users deal with:
 
-- students downloading lectures for offline study
-- users on slow Wi‑Fi or mobile hotspots
-- people who prefer downloading once and watching later without buffering
+- weak Wi‑Fi
+- limited mobile data
+- unstable rural internet
+- long commutes without connectivity
 
-## Repository Layout
+This project is intended to make offline-first video access easier, especially for educational content such as recorded lectures and tutorials.
+
+## Features
+
+- three downloader interfaces for different user preferences
+- high-quality video downloads using `yt-dlp`
+- audio-only download support
+- terminal-based progress feedback
+- browser-based format selection and progress tracking
+- local-first workflow with downloaded files saved on device
+
+## Included Apps
+
+### 1. Shell Downloader
+
+Path: `youtube_downloader/download_lecture.sh`
+
+Best for users who want a minimal command-line workflow.
+
+Capabilities:
+
+- accepts a single YouTube URL
+- downloads the best MP4 video and best audio available
+- merges streams into one MP4 file
+
+### 2. Terminal UI Downloader
+
+Path: `youtube_tui/`
+
+Best for users who prefer working inside the terminal with a more interactive interface.
+
+Capabilities:
+
+- paste a link and inspect metadata
+- choose video or audio-only mode
+- watch progress updates live
+- save output into a local `downloads/` folder
+
+### 3. Web UI Downloader
+
+Path: `youtube_web_ui/`
+
+Best for users who want a friendlier browser-based experience.
+
+Capabilities:
+
+- analyze a YouTube URL in the browser
+- inspect available formats
+- choose video+audio, video-only, or audio-only
+- track progress and cancel downloads
+- save the generated file locally after processing
+
+## Project Structure
 
 ```text
 youtube_downloader/
@@ -41,19 +94,28 @@ youtube_web_ui/
 
 ## Requirements
 
-Minimum system requirements:
+System requirements:
 
-- `python3` 3.10+
+- `python3` 3.10 or newer
 - `ffmpeg`
 - internet access
 
-Project dependencies:
+Python packages used in this repo:
 
 - `yt-dlp`
-- `Flask` for the web UI
-- `textual` for the TUI
+- `Flask`
+- `textual`
 
-## Install `ffmpeg`
+## Installation
+
+Clone the repository:
+
+```bash
+git clone https://github.com/geniesabbir/youtube-downloader-utils.git
+cd youtube-downloader-utils
+```
+
+Install `ffmpeg` first.
 
 ### macOS
 
@@ -68,13 +130,9 @@ sudo apt update
 sudo apt install -y ffmpeg python3-venv
 ```
 
-## 1. Shell Downloader
+## How To Run
 
-Location: `youtube_downloader/download_lecture.sh`
-
-This is the simplest option. It downloads the best available MP4 video and best audio, then merges them into a single MP4 file.
-
-### Run
+### Shell Downloader
 
 ```bash
 cd youtube_downloader
@@ -82,23 +140,12 @@ chmod +x download_lecture.sh
 ./download_lecture.sh "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
-### Notes
+Notes:
 
-- This script currently assumes `Homebrew` is available when it needs to install missing tools.
-- Output is saved in the current folder where the script is run.
+- output is saved in the current folder
+- the script expects `Homebrew` if it needs to auto-install missing tools on macOS
 
-## 2. Terminal UI Downloader
-
-Location: `youtube_tui/`
-
-This version provides:
-
-- URL input
-- video metadata lookup
-- video or audio-only mode
-- progress updates inside the terminal
-
-### Run
+### Terminal UI
 
 ```bash
 cd youtube_tui
@@ -106,9 +153,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The launcher creates a virtual environment automatically if needed, installs dependencies, and starts the app.
-
-### Manual run
+Manual setup:
 
 ```bash
 cd youtube_tui
@@ -118,28 +163,13 @@ pip install -r requirements.txt
 python3 app.py
 ```
 
-### Output
-
-Downloaded files are saved to:
+Output location:
 
 ```text
 youtube_tui/downloads/
 ```
 
-## 3. Web UI Downloader
-
-Location: `youtube_web_ui/`
-
-This version provides:
-
-- browser interface
-- metadata lookup
-- selectable video/audio formats
-- progress polling
-- download cancellation
-- save-to-device flow after processing
-
-### Run
+### Web UI
 
 ```bash
 cd youtube_web_ui
@@ -147,15 +177,13 @@ chmod +x start.sh
 ./start.sh
 ```
 
-Then open:
+Open in your browser:
 
 ```text
 http://localhost:5001
 ```
 
-The launcher creates a virtual environment automatically if needed, installs dependencies, and starts the Flask app.
-
-### Manual run
+Manual setup:
 
 ```bash
 cd youtube_web_ui
@@ -165,59 +193,56 @@ pip install -r requirements.txt
 python3 app.py
 ```
 
-### Output
-
-Downloaded files are stored in:
+Output location:
 
 ```text
 youtube_web_ui/downloads/
 ```
 
-## Recommended Setup
+## User Agreement
 
-If you only want one tool:
+By using this repository, you agree to the following:
 
-- use the shell script for the quickest path
-- use the TUI if you prefer the terminal
-- use the web UI if you want a friendlier interface
+- you are responsible for how you use these tools
+- you will only download content you own, are authorized to access, or are legally allowed to save
+- you understand that platform terms of service may restrict downloading in some situations
+- you accept that this repository is provided as-is, without warranty or guarantee of compatibility with every video source or future YouTube change
+- you will not use this project for piracy, redistribution of copyrighted material without permission, or any unlawful activity
 
-If you are setting up the whole repo after cloning:
+If you do not agree with these conditions, do not use the software.
 
-```bash
-git clone https://github.com/geniesabbir/youtube-downloader-utils.git
-cd youtube-downloader-utils
-```
+## Legal and Usage Disclaimer
 
-Then run whichever app you want from its own folder.
+This project is provided for educational and personal-use scenarios, especially offline access to legitimately accessible content such as lectures, tutorials, and other permitted media.
 
-## Important Notes
-
-- Downloading copyrighted content may violate platform rules or local law. Use these tools only for content you have the right to download.
-- YouTube may change its delivery methods over time, so `yt-dlp` should be kept updated if downloads stop working.
-- For best merged video quality, make sure `ffmpeg` is installed and available on your `PATH`.
+The maintainer does not encourage copyright infringement, unauthorized redistribution, or misuse of third-party content. Users are solely responsible for ensuring that their use complies with local law, copyright rules, and the terms of the platforms they access.
 
 ## Troubleshooting
 
-### `yt-dlp` download errors
+### `yt-dlp` fails to download
 
-Update dependencies inside the relevant app environment:
+Update it inside the relevant environment:
 
 ```bash
 pip install --upgrade yt-dlp
 ```
 
-### Merge fails or only one stream downloads
+### Video and audio do not merge properly
 
-Install `ffmpeg` and verify:
+Check that `ffmpeg` is installed and available on your `PATH`:
 
 ```bash
 ffmpeg -version
 ```
 
-### `python3: command not found`
+### `python3` is missing
 
-Install Python 3 and ensure it is available on your shell `PATH`.
+Install Python 3 and ensure it is available in your shell environment.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## Author
 
-Created by `geniesabbir`.
+Created and maintained by `geniesabbir`.
