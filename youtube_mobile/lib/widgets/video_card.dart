@@ -3,23 +3,20 @@ import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
-import '../services/security_service.dart';
 import 'metadata_editor.dart';
 import 'video_player_view.dart';
 
 class VideoCard extends StatelessWidget {
   final VideoJob job;
-  final VoidCallback onVaultLocked;
 
   const VideoCard({
     super.key,
     required this.job,
-    required this.onVaultLocked,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bool isCompleted = job.status == "Completed" && job.localPath != null;
+    final bool isCompleted = job.localPath != null;
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8.0),
@@ -324,11 +321,6 @@ class VideoCard extends StatelessWidget {
                             onPressed: () => _openTagEditor(context),
                           ),
                           IconButton(
-                            icon: const Icon(Icons.lock_outline, color: Colors.amber),
-                            tooltip: "Lock in Secure Vault",
-                            onPressed: () => _moveFileToVault(context),
-                          ),
-                          IconButton(
                             icon: const Icon(Icons.play_circle_fill, color: Color(0xff00ff88), size: 30),
                             tooltip: "Play",
                             onPressed: () {
@@ -363,7 +355,7 @@ class VideoCard extends StatelessWidget {
   }
 
   Color _getStatusColor(VideoJob job) {
-    if (job.status == "Completed") return const Color(0xff00ff88);
+    if (job.localPath != null) return const Color(0xff00ff88);
     if (job.discoverFailed || job.downloadFailed) return Colors.redAccent;
     if (job.downloading) return const Color(0xff00d2ff);
     if (job.status.startsWith("Paused")) return Colors.amber;
@@ -388,31 +380,5 @@ class VideoCard extends StatelessWidget {
       backgroundColor: Colors.transparent,
       builder: (context) => MetadataEditor(job: job),
     );
-  }
-
-  Future<void> _moveFileToVault(BuildContext context) async {
-    final sec = SecurityService();
-    final enabled = await sec.isLockEnabled;
-    if (!enabled) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Enable 'Biometric Lock' in settings to lock files in the vault."),
-          backgroundColor: Colors.amber,
-        ),
-      );
-      return;
-    }
-
-    final authenticated = await sec.authenticate("Authenticate to lock file in Secure Vault");
-    if (authenticated) {
-      job.status = "Vault Locked";
-      onVaultLocked();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("File locked securely in Biometric Enclave Vault."),
-          backgroundColor: Color(0xff00ff88),
-        ),
-      );
-    }
   }
 }

@@ -2,9 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
-import '../services/security_service.dart';
 import 'video_card.dart';
-import 'vault_view.dart';
 import 'player_overlay.dart';
 
 class Dashboard extends StatefulWidget {
@@ -19,18 +17,15 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   final TextEditingController _urlInputController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final DownloadService _downloadService = DownloadService();
-  final SecurityService _securityService = SecurityService();
 
   bool _isAudioOnly = false;
   String _searchQuery = "";
-  bool _biometricsEnabled = false;
   StreamSubscription? _warningSub;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _loadSettings();
+    _tabController = TabController(length: 3, vsync: this);
 
     // Listen to background service warnings and display high-fidelity floating warning toast
     _warningSub = _downloadService.warningStream.listen((message) {
@@ -114,13 +109,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
     );
   }
 
-  Future<void> _loadSettings() async {
-    final bioEnabled = await _securityService.isLockEnabled;
-    setState(() {
-      _biometricsEnabled = bioEnabled;
-    });
-  }
-
   @override
   void dispose() {
     _warningSub?.cancel();
@@ -176,7 +164,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           tabs: const [
             Tab(icon: Icon(Icons.download), text: "Queue"),
             Tab(icon: Icon(Icons.library_books), text: "Library"),
-            Tab(icon: Icon(Icons.fingerprint), text: "Vault"),
             Tab(icon: Icon(Icons.tune), text: "Settings"),
           ],
         ),
@@ -189,11 +176,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
               children: [
                 _buildQueueTab(),
                 _buildLibraryTab(),
-                VaultView(
-                  onVaultChanged: () {
-                    setState(() {}); // refresh layouts
-                  },
-                ),
                 _buildSettingsTab(),
               ],
             ),
@@ -213,7 +195,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       stream: _downloadService.queueStream,
       builder: (context, snapshot) {
         final queue = snapshot.data ?? _downloadService.queue;
-        final activeJobs = queue.where((j) => j.status != "Completed" && j.status != "Vault Locked").toList();
+        final activeJobs = queue.where((j) => j.localPath == null).toList();
 
         return Padding(
           padding: const EdgeInsets.all(16.0),
@@ -311,7 +293,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
                         itemBuilder: (context, index) {
                           return VideoCard(
                             job: activeJobs[index],
-                            onVaultLocked: () => setState(() {}),
                           );
                         },
                       ),
@@ -329,9 +310,8 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       stream: _downloadService.queueStream,
       builder: (context, snapshot) {
         final queue = snapshot.data ?? _downloadService.queue;
-        // Exclude vault items or in-progress jobs
         final completedJobs = queue
-            .where((j) => j.status == "Completed" && j.localPath != null)
+            .where((j) => j.localPath != null)
             .where((j) =>
                 _searchQuery.isEmpty ||
                 j.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
@@ -393,7 +373,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
                         itemBuilder: (context, index) {
                           return VideoCard(
                             job: completedJobs[index],
-                            onVaultLocked: () => setState(() {}),
                           );
                         },
                       ),
@@ -445,44 +424,6 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
               setState(() {
                 _downloadService.setPowerSaver(val);
               });
-            },
-          ),
-          const Divider(color: Colors.blueGrey, height: 1),
-          // Biometrics Enable
-          SwitchListTile(
-            title: const Text("Biometric Lock (TouchID/FaceID)", style: TextStyle(color: Colors.white, fontSize: 14)),
-            subtitle: const Text("Enforces local authentication to unlock private vault", style: TextStyle(color: Colors.blueGrey, fontSize: 11)),
-            value: _biometricsEnabled,
-            activeColor: const Color(0xff00ff88),
-            onChanged: (val) async {
-              final sec = SecurityService();
-              if (val) {
-                final canAuth = await sec.canAuthenticate();
-                if (!canAuth) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Biometrics not supported or setup on this device."),
-                      backgroundColor: Colors.redAccent,
-                    ),
-                  );
-                  return;
-                }
-                final passed = await sec.authenticate("Setup secure biometrics");
-                if (passed) {
-                  await sec.setLockEnabled(true);
-                  setState(() {
-                    _biometricsEnabled = true;
-                  });
-                }
-              } else {
-                final passed = await sec.authenticate("Disable biometric vault");
-                if (passed) {
-                  await sec.setLockEnabled(false);
-                  setState(() {
-                    _biometricsEnabled = false;
-                  });
-                }
-              }
             },
           ),
           const Divider(color: Colors.blueGrey, height: 1),
