@@ -1,2 +1,8 @@
-textual
-yt-dlp
+textual==8.2.7
+yt-dlp==2026.3.17
+yt-dlp-ejs>=0.8.0
+pycryptodome>=3.23.0
+brotli>=1.2.0
+requests>=2.33.0
+mutagen>=1.47.0
+websockets>=16.0

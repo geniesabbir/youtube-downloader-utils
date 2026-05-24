@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from dataclasses import dataclass
 
@@ -35,9 +36,11 @@ class VideoCard(Static):
         self.state = state
 
     def compose(self) -> ComposeResult:
+        yield Static(f"JOB {self.state.job_id}", classes="video-kicker")
         yield Label(self.state.title, id=f"title-{self.state.job_id}", classes="video-title")
         yield Static(self._meta_text(), id=f"meta-{self.state.job_id}", classes="video-meta")
         yield Static(self._status_text(), id=f"status-{self.state.job_id}", classes="video-status")
+
         yield ProgressBar(
             total=100,
             show_eta=False,
@@ -74,6 +77,8 @@ class VideoCard(Static):
         download_audio.disabled = not download_ready
         retry_download.disabled = not state.download_failed or state.downloading
 
+
+
     def _meta_text(self) -> str:
         return (
             f"Channel: [bold]{self.state.author}[/bold]\n"
@@ -94,33 +99,77 @@ class YouTubeTUI(App):
         super().__init__()
         self.jobs: dict[str, VideoJobState] = {}
         self.job_counter = 0
+        self.auth_state = YouTubeDownloader.auth_status()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical(id="workspace"):
-            yield Static("SYSTEM READY", id="system-status")
+            with Horizontal(id="topbar", classes="app-card"):
+                with Vertical(id="title-block"):
+                    yield Static("VOID ARCHIVE", classes="eyebrow")
+                    yield Label("Batch discovery", id="hero-title")
+                    yield Static(
+                        "Authenticate once, then analyze and download per video.",
+                        id="hero-copy",
+                    )
+                with Vertical(id="status-block"):
+                    yield Static("SESSION", classes="mini-label")
+                    yield Static("SYSTEM READY", id="system-status")
 
-            with Vertical(id="input-panel"):
-                yield Label("DISCOVER URLS")
-                yield Input(
-                    placeholder="Paste one or more URLs separated by spaces or commas...",
-                    id="url-input",
-                )
-                yield Button("ANALYZE URLS", variant="success", id="analyze-btn")
+            with Vertical(id="auth-panel", classes="app-card"):
+                yield Static("AUTHENTICATION", classes="eyebrow")
+                yield Label("Cookie session", classes="section-title")
+                yield Static(self._auth_status_text(), id="auth-status")
+                with Horizontal(id="auth-actions"):
+                    yield Input(
+                        value=self._default_browser_spec(),
+                        placeholder="Browser spec, e.g. brave or chrome:Profile 1",
+                        id="browser-spec-input",
+                    )
+                    yield Button("EXPORT COOKIES", variant="primary", id="export-cookies-btn")
 
-            with Vertical(id="results-panel"):
-                yield Label("DISCOVERED VIDEOS", classes="panel-header")
+            with Vertical(id="input-panel", classes="app-card"):
+                yield Static("DISCOVERY", classes="eyebrow")
+                yield Label("Queue URLs", classes="section-title")
+                with Horizontal(id="discover-actions"):
+                    yield Input(
+                        placeholder="https://youtu.be/... , https://youtube.com/watch?v=...",
+                        id="url-input",
+                    )
+                    yield Button("ANALYZE URLS", variant="success", id="analyze-btn")
+
+            with Vertical(id="results-panel", classes="app-card"):
+                yield Static("RESULTS", classes="eyebrow")
+                yield Label("Discovered videos", classes="section-title")
                 yield Static(
-                    "Paste one or more URLs, then analyze to build individual download jobs.",
+                    "Each successful discovery becomes its own download card.",
                     id="results-summary",
                 )
                 with Vertical(id="results-list"):
-                    yield Static("No discovery jobs yet.", id="empty-state")
+                    yield Static(
+                        "No discovery jobs yet.\nStart with a URL batch above.",
+                        id="empty-state",
+                    )
 
         yield Footer()
 
+    def on_mount(self) -> None:
+        self.refresh_auth_status()
+
     @on(Button.Pressed, "#analyze-btn")
     async def handle_analyze(self) -> None:
+        self.refresh_auth_status()
+        refresh_reason = self.auth_state.get("refresh_reason")
+        if refresh_reason in {"expired", "missing", "unauthenticated"}:
+            self.query_one("#system-status", Static).update("AUTH REFRESH REQUIRED")
+            self.notify(
+                "A valid signed-in cookie session is not available. Sign into YouTube in the browser and export again.",
+                severity="warning",
+            )
+            return
+        if refresh_reason == "expiring_soon":
+            self.notify("Cookies are expiring soon. Re-export is recommended.", severity="warning")
+
         raw_value = self.query_one("#url-input", Input).value
         urls = self.parse_urls(raw_value)
         if not urls:
@@ -136,6 +185,49 @@ class YouTubeTUI(App):
             await self.mount_card(job)
             asyncio.create_task(self.discover_source(job.job_id, url))
 
+    @on(Button.Pressed, "#export-cookies-btn")
+    async def handle_export_cookies(self) -> None:
+        browser_spec = self.query_one("#browser-spec-input", Input).value.strip()
+        if not browser_spec:
+            self.notify("Enter a browser spec first.", severity="warning")
+            return
+
+        button = self.query_one("#export-cookies-btn", Button)
+        button.disabled = True
+        self.query_one("#system-status", Static).update("EXPORTING COOKIES...")
+
+        loop = asyncio.get_running_loop()
+        downloader = YouTubeDownloader()
+        success, message, cookie_path = await loop.run_in_executor(
+            None,
+            downloader.export_cookies,
+            browser_spec,
+        )
+
+        button.disabled = False
+        if success:
+            os.environ["YTDLP_COOKIES_FILE"] = cookie_path
+            self.refresh_auth_status()
+            if self.auth_state.get("enabled"):
+                self.query_one("#system-status", Static).update(
+                    f"COOKIE SESSION READY"
+                )
+                self.notify(
+                    f"Signed-in cookies exported: {cookie_path}",
+                    severity="information",
+                )
+            else:
+                self.query_one("#system-status", Static).update(
+                    "EXPORT COMPLETE, SIGN-IN NOT DETECTED"
+                )
+                self.notify(
+                    "Cookies were exported, but no signed-in YouTube session was found. Log into YouTube in the browser and export again.",
+                    severity="warning",
+                )
+        else:
+            self.query_one("#system-status", Static).update("COOKIE EXPORT FAILED")
+            self.notify(message, severity="error")
+
     @on(Button.Pressed)
     async def handle_dynamic_actions(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -145,16 +237,22 @@ class YouTubeTUI(App):
             await self.retry_discover(button_id.removeprefix("retry-discover-"))
             return
         if button_id.startswith("download-video-"):
-            await self.start_download(button_id.removeprefix("download-video-"), "best")
+            job_id = button_id.removeprefix("download-video-")
+            await self.start_download(job_id, "video:best")
             return
         if button_id.startswith("download-audio-"):
-            await self.start_download(button_id.removeprefix("download-audio-"), "audio")
+            job_id = button_id.removeprefix("download-audio-")
+            await self.start_download(job_id, "audio:best")
             return
         if button_id.startswith("retry-download-"):
             job_id = button_id.removeprefix("retry-download-")
             job = self.jobs.get(job_id)
             if job and job.last_download_mode:
                 await self.start_download(job_id, job.last_download_mode)
+
+
+
+
 
     async def retry_discover(self, job_id: str) -> None:
         job = self.jobs.get(job_id)
@@ -341,6 +439,25 @@ class YouTubeTUI(App):
             seen.add(cleaned)
             urls.append(cleaned)
         return urls
+
+    def _auth_status_text(self) -> str:
+        state = self.auth_state
+        marker = "ONLINE" if state["enabled"] else "OFFLINE"
+        return (
+            f"AUTH {marker}\n"
+            f"[bold]{state['label']}[/bold]\n"
+            f"{state['detail']}"
+        )
+
+    def refresh_auth_status(self) -> None:
+        self.auth_state = YouTubeDownloader.auth_status()
+        self.query_one("#auth-status", Static).update(self._auth_status_text())
+
+    def _default_browser_spec(self) -> str:
+        return (
+            os.environ.get("YTDLP_BROWSER_SPEC", "").strip()
+            or os.environ.get("YTDLP_COOKIES_FROM_BROWSER", "").strip()
+        )
 
 
 if __name__ == "__main__":

@@ -53,7 +53,8 @@ Best for users who prefer working inside the terminal with a more interactive in
 Capabilities:
 
 - paste a link and inspect metadata
-- choose video or audio-only mode
+- download video (defaults to best resolution) or audio-only mode
+- automatic YouTube signature (`n` challenge decryption) decryption support using local JS runtimes
 - watch progress updates live
 - save output into a local `downloads/` folder
 
@@ -97,12 +98,13 @@ youtube_web_ui/
 System requirements:
 
 - `python3` 3.10 or newer
-- `ffmpeg`
+- `ffmpeg` available on `PATH` for merging and extracting audio
+- A JavaScript runtime (`deno`, `node`, or `bun`) available on `PATH` for YouTube signature decryption challenge solving
 - internet access
 
 Python packages used in this repo:
 
-- `yt-dlp`
+- `yt-dlp` (with `yt-dlp-ejs` and standard cryptographic dependencies for TUI challenge solving)
 - `Flask`
 - `textual`
 

@@ -14,8 +14,9 @@ This version is built around isolated video jobs:
 
 - Batch URL input using spaces or commas as separators
 - Discovery of single videos and multi-entry sources
-- Per-video download as MP4
+- Per-video download as MP4 (defaults to best resolution)
 - Per-video audio download as MP3
+- Automatic YouTube signature (`n` challenge decryption) decryption support using `yt-dlp-ejs` and local JS runtimes
 - Retry discovery for failed jobs
 - Retry download for failed jobs
 - Individual progress bars and statuses for each video
@@ -24,6 +25,7 @@ This version is built around isolated video jobs:
 
 - Python 3.10+
 - `ffmpeg` available on `PATH` for merge and audio extraction
+- A JavaScript runtime (`deno`, `node`, or `bun`) available on `PATH` for solving signature decryption challenges when authenticated cookies are loaded
 
 ## Install
 
@@ -40,6 +42,24 @@ Use the helper script:
 ```bash
 ./run.sh
 ```
+
+The helper script now bootstraps the runtime automatically:
+
+- creates the virtual environment when missing
+- installs the pinned versions from `requirements.txt`
+- attempts to install `ffmpeg` through Homebrew when `ffmpeg` is missing
+- reuses a valid cached signed-in cookie session when available
+- scans supported browsers for a signed-in YouTube/Google cookie session only when no valid cached session exists
+
+If you want to intentionally refresh dependencies, use:
+
+```bash
+./run.sh --update
+```
+
+That mode upgrades packaging tools and refreshes the pinned application dependencies.
+
+If you already want to force a specific auth path, `YTDLP_COOKIES_FILE`, `YTDLP_BROWSER_SPEC`, and `YTDLP_COOKIES_FROM_BROWSER` still take precedence.
 
 Or run directly:
 
@@ -61,6 +81,68 @@ python3 app.py
 7. If download fails for a card, use `Retry Download`.
 
 Downloaded files are saved to the `downloads/` directory.
+
+## YouTube Authentication
+
+Some YouTube URLs now reject anonymous `yt-dlp` requests with:
+
+`Sign in to confirm you're not a bot`
+
+This app supports passing cookies through environment variables before launch.
+
+Preferred: pass a full `yt-dlp` browser spec:
+
+```bash
+export YTDLP_BROWSER_SPEC=brave
+./run.sh
+```
+
+Examples:
+
+- `YTDLP_BROWSER_SPEC=brave`
+- `YTDLP_BROWSER_SPEC=chrome:Profile 1`
+- `YTDLP_BROWSER_SPEC=chromium:/full/profile/path`
+- `YTDLP_BROWSER_SPEC=firefox:default`
+
+Backward-compatible fallback:
+
+```bash
+export YTDLP_COOKIES_FROM_BROWSER=brave
+./run.sh
+```
+
+Or use an exported cookies file:
+
+```bash
+export YTDLP_COOKIES_FILE=/absolute/path/to/cookies.txt
+./run.sh
+```
+
+TUI export flow:
+
+- Enter a browser spec in the `EXPORT COOKIES` field, such as `brave` or `chrome:Profile 1`
+- Click `EXPORT COOKIES`
+- The app will export cookies to `~/.cache/void-archive/youtube.cookies.txt`
+- The current TUI session will immediately switch to that cookie file
+- Future discovery and download actions will reuse that exported file first, which avoids repeated macOS Keychain prompts
+- The TUI tracks cookie expiry from the exported file and will:
+  - warn when the cookies are close to expiry
+  - block discovery when the cookies are expired or missing
+  - ask for re-export before continuing
+
+This keeps the UX one-click inside the app for supported browsers, while still using a stable file-based auth path for downloads.
+
+Arc-specific note:
+
+- Arc is not a supported `--cookies-from-browser` name in `yt-dlp`.
+- On macOS, Arc cookies may also fail decryption through Chromium-compatible extraction.
+- For Arc, `YTDLP_COOKIES_FILE=/absolute/path/to/cookies.txt` is the reliable path.
+
+Priority order:
+
+1. `YTDLP_BROWSER_SPEC`
+2. `YTDLP_COOKIES_FROM_BROWSER`
+3. `YTDLP_COOKIES_FILE` can be combined with either and is the safest fallback
 
 ## Architecture
 

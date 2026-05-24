@@ -1,6 +1,16 @@
 Screen {
-    background: #020617;
-    color: #e2e8f0;
+    background: #0b0f14;
+    color: #eef2f7;
+}
+
+Header {
+    background: #11161d;
+    color: #f7fafc;
+}
+
+Footer {
+    background: #11161d;
+    color: #94a3b8;
 }
 
 #workspace {
@@ -8,42 +18,131 @@ Screen {
     height: auto;
 }
 
-#system-status {
-    background: #0f172a;
-    color: #94a3b8;
-    padding: 0 1;
-    margin-bottom: 1;
-    border: solid #1e293b;
-}
-
-#input-panel,
-#results-panel,
+.app-card,
 .video-card {
-    background: #0f172a;
-    border: round #334155;
+    background: #141a22;
+    border: round #283241;
     padding: 1 2;
     margin-bottom: 1;
     height: auto;
 }
 
-.panel-header {
-    color: #38bdf8;
+#topbar {
+    height: auto;
+}
+
+#title-block {
+    width: 1fr;
+    height: auto;
+}
+
+#status-block {
+    width: 28;
+    height: auto;
+    align: right middle;
+}
+
+.eyebrow {
+    color: #7dd3fc;
     text-style: bold;
     margin-bottom: 1;
 }
 
+.section-title {
+    color: #f8fafc;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.mini-label {
+    color: #94a3b8;
+    margin-bottom: 1;
+}
+
+#hero-title {
+    color: #f8fafc;
+    text-style: bold;
+}
+
+#hero-copy {
+    color: #94a3b8;
+}
+
+#system-status {
+    background: #1b2430;
+    color: #e2e8f0;
+    border: round #364152;
+    padding: 0 1;
+    width: 100%;
+}
+
+#auth-panel {
+    height: auto;
+}
+
+#input-panel {
+    height: auto;
+}
+
+#results-panel {
+    height: auto;
+}
+
+#auth-status {
+    background: #10151c;
+    color: #e2e8f0;
+    border: round #2d394a;
+    padding: 1 1;
+    margin-bottom: 1;
+}
+
+#auth-actions {
+    height: auto;
+}
+
+#discover-actions {
+    height: auto;
+}
+
 Input {
-    background: #020617;
-    color: #cbd5f5;
-    border: tall #1d4ed8;
+    background: #0f141b;
+    color: #f8fafc;
+    border: round #334155;
+    padding: 0 1;
+}
+
+Input:focus {
+    border: round #38bdf8;
+}
+
+#browser-spec-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#url-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+Button {
+    min-width: 18;
+    border: none;
+    text-style: bold;
+    padding: 1 2;
+    height: 3;
+}
+
+#export-cookies-btn {
+    width: 28;
+    background: #2563eb;
+    color: #eff6ff;
 }
 
 #analyze-btn {
-    width: 100%;
-    margin-top: 1;
-    background: #065f46;
-    color: #ecfdf5;
-    text-style: bold;
+    width: 28;
+    background: #10b981;
+    color: #052e2b;
 }
 
 #results-summary {
@@ -57,6 +156,14 @@ Input {
 
 #empty-state {
     color: #64748b;
+    border: round #253041;
+    padding: 2 2;
+}
+
+.video-kicker {
+    color: #7dd3fc;
+    text-style: bold;
+    margin-bottom: 1;
 }
 
 .video-title {
@@ -71,7 +178,7 @@ Input {
 }
 
 .video-status {
-    color: #38bdf8;
+    color: #a7f3d0;
 }
 
 .video-actions {
@@ -81,14 +188,17 @@ Input {
 
 .video-actions Button {
     margin-right: 1;
+    min-width: 20;
+    height: 3;
 }
 
 ProgressBar {
     color: #60a5fa;
+    background: #0f141b;
     height: 1;
     margin-top: 1;
 }
 
 ProgressBar > .progress--bar {
-    background: #2563eb;
+    background: #3b82f6;
 }
