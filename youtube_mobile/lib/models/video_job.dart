@@ -3,11 +3,7 @@ class Chapter {
   final Duration start;
   final Duration end;
 
-  Chapter({
-    required this.title,
-    required this.start,
-    required this.end,
-  });
+  Chapter({required this.title, required this.start, required this.end});
 
   factory Chapter.fromJson(Map<String, dynamic> json) {
     return Chapter(
@@ -18,11 +14,7 @@ class Chapter {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'title': title,
-      'start': start.inSeconds,
-      'end': end.inSeconds,
-    };
+    return {'title': title, 'start': start.inSeconds, 'end': end.inSeconds};
   }
 }
 
@@ -83,7 +75,8 @@ class VideoJob {
       isAudio: json['isAudio'] as bool? ?? false,
       downloadTriggered: json['downloadTriggered'] as bool? ?? false,
       thumbnailUrl: json['thumbnailUrl'] as String?,
-      chapters: (json['chapters'] as List<dynamic>?)
+      chapters:
+          (json['chapters'] as List<dynamic>?)
               ?.map((e) => Chapter.fromJson(e as Map<String, dynamic>))
               .toList() ??
           [],
@@ -127,6 +120,7 @@ class VideoJob {
     bool? downloadTriggered,
     String? thumbnailUrl,
     List<Chapter>? chapters,
+    bool clearLocalPath = false,
   }) {
     return VideoJob(
       jobId: jobId,
@@ -141,7 +135,7 @@ class VideoJob {
       discoverFailed: discoverFailed ?? this.discoverFailed,
       downloadFailed: downloadFailed ?? this.downloadFailed,
       downloading: downloading ?? this.downloading,
-      localPath: localPath ?? this.localPath,
+      localPath: clearLocalPath ? null : (localPath ?? this.localPath),
       isAudio: isAudio ?? this.isAudio,
       downloadTriggered: downloadTriggered ?? this.downloadTriggered,
       thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,

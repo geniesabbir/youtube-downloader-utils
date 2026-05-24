@@ -24,27 +24,29 @@ The core value is still fast, reliable YouTube media capture, but that alone is 
 - [x] Multiple URL paste intake
 - [x] Audio-only toggle
 - [x] Analyze before download flow
+- [x] Staged batch review with start/clear controls
+- [x] Concurrent download setting with default `3`
 - [x] Completed file persistence across app reload
 - [x] Save downloads to public Downloads when available
 - [x] Queue + Library + Settings app structure
 - [x] Local playback for audio and video
 - [x] Search inside library
+- [x] Split video and audio library tabs
+- [x] Manual library re-scan
 - [x] Branded app shell
 - [x] Splash screen
 - [x] First-time onboarding flow
 
 ### Implemented but needs refinement
 
-- [ ] Batch UX for large pasted URL sets
+- [ ] Playlist-aware batch UX
 - [ ] Queue management UX
-- [ ] Better settings for download behavior
-- [ ] More professional library structure
+- [ ] Standard player polish
+- [ ] Library sorting and file stats
 
 ### Not implemented yet
 
 - [ ] Playlist download flow
-- [ ] Concurrent download control
-- [ ] Separate video and audio library tabs
 - [ ] Standardized media player UX
 - [ ] Real native app icon assets
 - [ ] Download quality controls
@@ -92,11 +94,11 @@ Right now large pasted URL sets are analyzed and added immediately. That works, 
 
 Plan:
 
-- [ ] Add a review state for pasted URLs
-- [ ] Show detected valid URLs count before queue insertion
-- [ ] Add `Start Batch` button
-- [ ] Add `Cancel Batch` button
-- [ ] Allow removing individual links from the staged batch before insertion
+- [x] Add a review state for pasted URLs
+- [x] Show detected valid URLs count before queue insertion
+- [x] Add `Start Batch` button
+- [x] Add `Cancel Batch` button
+- [x] Allow removing individual links from the staged batch before insertion
 
 Success criteria:
 
@@ -110,11 +112,11 @@ Downloading too many files at once can split bandwidth and worsen completion rel
 
 Plan:
 
-- [ ] Add `Concurrent downloads` setting in Settings
-- [ ] Default value: `3`
-- [ ] Allowed range: `1-5`
-- [ ] Update queue processor to run up to configured concurrency
-- [ ] Show active vs waiting state in queue
+- [x] Add `Concurrent downloads` setting in Settings
+- [x] Default value: `3`
+- [x] Allowed range: `1-5`
+- [x] Update queue processor to run up to configured concurrency
+- [x] Show active vs waiting state in queue
 
 Success criteria:
 
@@ -162,11 +164,8 @@ Audio and video use cases are different.
 
 Plan:
 
-- [ ] Replace single Library view with:
-  - `Videos`
-  - `Audio`
-  - optional future `Playlists` or `Collections`
-- [ ] Keep shared search
+- [x] Replace single Library view with separate `Videos` and `Audio` tabs
+- [x] Keep shared search
 - [ ] Add per-tab filters and sort
 
 Success criteria:
@@ -214,7 +213,7 @@ Plan:
 - [ ] File size and storage usage
 - [ ] Bulk delete
 - [ ] Detect missing files and repair metadata
-- [ ] Re-scan local storage manually
+- [x] Re-scan local storage manually
 
 ### 9. Better metadata utility
 
@@ -241,12 +240,12 @@ These are the best candidates that go beyond basic downloading:
 
 ### P0
 
-- [ ] Batch start flow
-- [ ] Concurrent downloads setting
+- [x] Batch start flow
+- [x] Concurrent downloads setting
 - [ ] Playlist download
-- [ ] Audio/Video split library
+- [x] Audio/Video split library
 - [ ] Standard player cleanup
-- [ ] Rename app to `YT Utils` across UI and platform metadata
+- [x] Rename app to `YT Utils` across UI and platform metadata
 
 ### P1
 
@@ -274,18 +273,18 @@ These are the best candidates that go beyond basic downloading:
 
 ## Downloader
 
-- [ ] Introduce staged batch model
+- [x] Introduce staged batch model
 - [ ] Add playlist parsing pipeline
-- [ ] Add concurrency setting persistence
-- [ ] Refactor queue processor for multi-active jobs
+- [x] Add concurrency setting persistence
+- [x] Refactor queue processor for multi-active jobs
 - [ ] Add duplicate check by video id / canonical URL
 
 ## Library
 
-- [ ] Split library UI into audio/video tabs
+- [x] Split library UI into audio/video tabs
 - [ ] Add sorting + filtering model
 - [ ] Add file stats
-- [ ] Add manual re-scan action
+- [x] Add manual re-scan action
 
 ## Playback
 
@@ -315,32 +314,36 @@ Use this section as the single execution tracker.
 
 - [x] Core single URL flow
 - [x] Core multi-URL paste flow
+- [x] Staged batch review flow
+- [x] Concurrent download controls
 - [x] Public download storage
 - [x] Queue persistence across reload
 - [x] Library persistence across reload
+- [x] Audio/video library split
 - [x] Brand shell
 - [x] First-time onboarding
 - [x] Vault removal
 
 ### In Progress
 
-- [ ] Professional app polish
+- [ ] Playlist ingestion and duplicate handling
+- [ ] Standard player cleanup
+- [ ] Professional library sorting and stats
 
 ### Next Up
 
-- [ ] Batch start flow
-- [ ] Concurrent download setting
 - [ ] Playlist download
-- [ ] Audio/video split library
 - [ ] Standard player upgrade
+- [ ] Library sorting and file stats
+- [ ] Native icon assets
 
 ## Suggested Build Order
 
 1. Rename app to `YT Utils`
 2. Add concurrent download setting
 3. Build staged batch start flow
-4. Add playlist parsing + playlist download
-5. Split audio/video library
+4. Split audio/video library
+5. Add playlist parsing + playlist download
 6. Simplify and standardize playback
 7. Add sorting, filtering, duplicate detection
 8. Add native icon assets

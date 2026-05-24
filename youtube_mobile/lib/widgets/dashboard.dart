@@ -14,20 +14,23 @@ class Dashboard extends StatefulWidget {
   State<Dashboard> createState() => _DashboardState();
 }
 
-class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMixin {
+class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   late TabController _tabController;
+  late TabController _libraryTabController;
   final TextEditingController _urlInputController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final DownloadService _downloadService = DownloadService();
 
   bool _isAudioOnly = false;
   String _searchQuery = "";
+  List<String> _stagedUrls = const [];
   StreamSubscription? _warningSub;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _libraryTabController = TabController(length: 2, vsync: this);
 
     // Listen to background service warnings and display high-fidelity floating warning toast
     _warningSub = _downloadService.warningStream.listen((message) {
@@ -45,11 +48,17 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         backgroundColor: Colors.transparent,
         elevation: 0,
         duration: const Duration(seconds: 6),
-        margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16), // float gracefully above player overlay
+        margin: const EdgeInsets.only(
+          bottom: 70,
+          left: 16,
+          right: 16,
+        ), // float gracefully above player overlay
         content: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
           decoration: BoxDecoration(
-            color: const Color(0xff1c1410).withOpacity(0.95), // deep warm spatial charcoal
+            color: const Color(
+              0xff1c1410,
+            ).withOpacity(0.95), // deep warm spatial charcoal
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: Colors.amber.withOpacity(0.4),
@@ -115,9 +124,91 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   void dispose() {
     _warningSub?.cancel();
     _tabController.dispose();
+    _libraryTabController.dispose();
     _urlInputController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _reviewBatch() {
+    final staged = _downloadService.extractSupportedUrls(
+      _urlInputController.text.trim(),
+    );
+    if (staged.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Paste at least one valid YouTube URL to build a batch.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _stagedUrls = staged;
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  Future<void> _startBatch() async {
+    if (_stagedUrls.isEmpty) return;
+    final insertedCount = await _downloadService.addJobs(
+      _stagedUrls,
+      isAudio: _isAudioOnly,
+    );
+    if (!mounted) return;
+    if (insertedCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No queueable videos were found in that batch.'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _stagedUrls = const [];
+      _urlInputController.clear();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          insertedCount == 1
+              ? '1 item added to the queue.'
+              : '$insertedCount items added to the queue.',
+        ),
+      ),
+    );
+    FocusScope.of(context).unfocus();
+  }
+
+  void _clearBatch() {
+    setState(() {
+      _stagedUrls = const [];
+    });
+  }
+
+  void _removeStagedUrl(String url) {
+    setState(() {
+      _stagedUrls = _stagedUrls
+          .where((item) => item != url)
+          .toList(growable: false);
+    });
+  }
+
+  Future<void> _updateConcurrentDownloads(int value) async {
+    await _downloadService.setMaxConcurrentDownloads(value);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _rescanLibrary() async {
+    await _downloadService.rescanStorage();
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Library scan finished.')));
   }
 
   @override
@@ -173,110 +264,269 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
       builder: (context, snapshot) {
         final queue = snapshot.data ?? _downloadService.queue;
         final activeJobs = queue.where((j) => j.localPath == null).toList();
+        final activeDownloads = activeJobs.where((j) => j.downloading).length;
+        final waitingDownloads = activeJobs
+            .where((j) => j.status == 'Waiting for slot')
+            .length;
+        final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+        final isKeyboardVisible = keyboardInset > 0;
 
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // Batch Paste Input Panel
-              Container(
-                padding: const EdgeInsets.all(12.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xff121820).withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(16.0),
-                  border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-                ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _urlInputController,
-                      style: const TextStyle(color: Colors.white),
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText: "Enter YouTube Video URLs (space or comma separated)...",
-                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 13),
-                        border: InputBorder.none,
+        Widget queueContent = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Batch Paste Input Panel
+            Container(
+              padding: const EdgeInsets.all(12.0),
+              decoration: BoxDecoration(
+                color: const Color(0xff121820).withOpacity(0.5),
+                borderRadius: BorderRadius.circular(16.0),
+                border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
+              ),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _urlInputController,
+                    style: const TextStyle(color: Colors.white),
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      hintText:
+                          "Paste single, batch, or playlist YouTube URLs...",
+                      hintStyle: TextStyle(
+                        color: Colors.white.withOpacity(0.3),
+                        fontSize: 13,
                       ),
+                      border: InputBorder.none,
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            const Text("Audio Only", style: TextStyle(color: Colors.white, fontSize: 12)),
-                            Switch(
-                              value: _isAudioOnly,
-                              activeColor: const Color(0xff00ff88),
-                              onChanged: (val) {
-                                setState(() {
-                                  _isAudioOnly = val;
-                                });
-                              },
-                            ),
-                          ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            "Audio Only",
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                          Switch(
+                            value: _isAudioOnly,
+                            activeColor: const Color(0xff00ff88),
+                            onChanged: (val) {
+                              setState(() {
+                                _isAudioOnly = val;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xff0a0d14),
+                          foregroundColor: const Color(0xff00d2ff),
+                          side: const BorderSide(
+                            color: Color(0xff00d2ff),
+                            width: 1.0,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                         ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff0a0d14),
-                            foregroundColor: const Color(0xff00d2ff),
-                            side: const BorderSide(color: Color(0xff00d2ff), width: 1.0),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                        icon: Icon(
+                          _stagedUrls.isEmpty
+                              ? Icons.playlist_add_check_circle_outlined
+                              : Icons.rocket_launch_outlined,
+                        ),
+                        label: Text(
+                          _stagedUrls.isEmpty ? "REVIEW BATCH" : "START BATCH",
+                        ),
+                        onPressed: _stagedUrls.isEmpty
+                            ? _reviewBatch
+                            : _startBatch,
+                      ),
+                    ],
+                  ),
+                  if (_stagedUrls.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.panelAlt.withOpacity(0.75),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: AppColors.stroke),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  "BATCH READY • ${_stagedUrls.length} URL${_stagedUrls.length == 1 ? '' : 'S'}",
+                                  style: const TextStyle(
+                                    color: AppColors.mint,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: _clearBatch,
+                                child: const Text("Clear"),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Review before queueing. This keeps large paste sets deliberate instead of instantly flooding the queue.",
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.66),
+                              fontSize: 12.5,
+                              height: 1.45,
                             ),
                           ),
-                          icon: const Icon(Icons.analytics_outlined),
-                          label: const Text("ANALYZE"),
-                          onPressed: () {
-                            if (_urlInputController.text.trim().isNotEmpty) {
-                              _downloadService.analyzeUrls(
-                                _urlInputController.text.trim(),
-                                isAudio: _isAudioOnly,
-                              );
-                              _urlInputController.clear();
-                              FocusScope.of(context).unfocus();
-                            }
-                          },
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          ..._stagedUrls
+                              .take(3)
+                              .map(
+                                (url) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xff0d131b),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            url,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: AppColors.cloud,
+                                              fontSize: 12.5,
+                                            ),
+                                          ),
+                                        ),
+                                        IconButton(
+                                          onPressed: () =>
+                                              _removeStagedUrl(url),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          icon: Icon(
+                                            Icons.close_rounded,
+                                            color: Colors.white.withOpacity(
+                                              0.55,
+                                            ),
+                                            size: 16,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          if (_stagedUrls.length > 3)
+                            Text(
+                              "+ ${_stagedUrls.length - 3} more URLs in this batch",
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.5),
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                "ACTIVE EXTRACTIONS QUEUE",
+                style: TextStyle(
+                  color: Color(0xff00d2ff),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12.0,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                _buildStatusPill('Active $activeDownloads', AppColors.mint),
+                const SizedBox(width: 8),
+                _buildStatusPill('Waiting $waitingDownloads', AppColors.cyan),
+                const Spacer(),
+                Text(
+                  '${activeJobs.length} in queue',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.45),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+        );
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final bottomPadding = isKeyboardVisible
+                ? keyboardInset + 24.0
+                : 76.0;
+            final minContentHeight = constraints.maxHeight - bottomPadding - 16;
+
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPadding),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: minContentHeight > 0 ? minContentHeight : 0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    queueContent,
+                    if (activeJobs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Center(
+                          child: Text(
+                            _stagedUrls.isNotEmpty
+                                ? "Batch is staged. Start it when you're ready."
+                                : "Queue is currently empty.",
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 13.0,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      ListView.builder(
+                        itemCount: activeJobs.length,
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemBuilder: (context, index) {
+                          return VideoCard(job: activeJobs[index]);
+                        },
+                      ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "ACTIVE EXTRACTIONS QUEUE",
-                  style: TextStyle(
-                    color: Color(0xff00d2ff),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12.0,
-                    letterSpacing: 1.0,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: activeJobs.isEmpty
-                    ? Center(
-                        child: Text(
-                          "Queue is currently empty.",
-                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13.0),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: activeJobs.length,
-                        itemBuilder: (context, index) {
-                          return VideoCard(
-                            job: activeJobs[index],
-                          );
-                        },
-                      ),
-              ),
-              const SizedBox(height: 60), // padding from absolute floating player
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -289,11 +539,15 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
         final queue = snapshot.data ?? _downloadService.queue;
         final completedJobs = queue
             .where((j) => j.localPath != null)
-            .where((j) =>
-                _searchQuery.isEmpty ||
-                j.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                j.author.toLowerCase().contains(_searchQuery.toLowerCase()))
+            .where(
+              (j) =>
+                  _searchQuery.isEmpty ||
+                  j.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+                  j.author.toLowerCase().contains(_searchQuery.toLowerCase()),
+            )
             .toList();
+        final videoJobs = completedJobs.where((j) => !j.isAudio).toList();
+        final audioJobs = completedJobs.where((j) => j.isAudio).toList();
 
         return Padding(
           padding: const EdgeInsets.all(16.0),
@@ -318,43 +572,91 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
                   decoration: InputDecoration(
                     icon: const Icon(Icons.search, color: Color(0xff00d2ff)),
                     hintText: "Search offline archive library...",
-                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13),
+                    hintStyle: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 13,
+                    ),
                     border: InputBorder.none,
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  "COMPLETED OFFLINE ARCHIVES",
-                  style: TextStyle(
-                    color: Color(0xff00ff88),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12.0,
-                    letterSpacing: 1.0,
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      "COMPLETED OFFLINE ARCHIVES",
+                      style: TextStyle(
+                        color: Color(0xff00ff88),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12.0,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
                   ),
-                ),
+                  TextButton.icon(
+                    onPressed: _rescanLibrary,
+                    icon: const Icon(Icons.sync, size: 16),
+                    label: const Text("Re-scan"),
+                  ),
+                ],
               ),
               const SizedBox(height: 10),
-              Expanded(
-                child: completedJobs.isEmpty
-                    ? Center(
-                        child: Text(
-                          _searchQuery.isNotEmpty ? "No matching files." : "No downloaded files in library.",
-                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 13.0),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: completedJobs.length,
-                        itemBuilder: (context, index) {
-                          return VideoCard(
-                            job: completedJobs[index],
-                          );
-                        },
-                      ),
+              Row(
+                children: [
+                  _buildStatusPill(
+                    'All ${completedJobs.length}',
+                    AppColors.mint,
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatusPill(
+                    'Videos ${videoJobs.length}',
+                    AppColors.cyan,
+                  ),
+                  const SizedBox(width: 8),
+                  _buildStatusPill(
+                    'Audio ${audioJobs.length}',
+                    const Color(0xfff6c453),
+                  ),
+                ],
               ),
-              const SizedBox(height: 60), // padding from absolute floating player
+              const SizedBox(height: 12),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.panel,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.stroke),
+                ),
+                child: TabBar(
+                  controller: _libraryTabController,
+                  indicatorColor: AppColors.mint,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: AppColors.muted,
+                  tabs: const [
+                    Tab(text: "Videos"),
+                    Tab(text: "Audio"),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: TabBarView(
+                  controller: _libraryTabController,
+                  children: [
+                    _buildLibraryList(
+                      videoJobs,
+                      emptyLabel: "No saved videos yet.",
+                    ),
+                    _buildLibraryList(
+                      audioJobs,
+                      emptyLabel: "No saved audio files yet.",
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(
+                height: 60,
+              ), // padding from absolute floating player
             ],
           ),
         );
@@ -380,39 +682,145 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           const SizedBox(height: 12),
           // Wi-Fi Only Toggle
           SwitchListTile(
-            title: const Text("Wi-Fi Only Mode", style: TextStyle(color: Colors.white, fontSize: 14)),
-            subtitle: const Text("Auto-pauses when switching to cellular", style: TextStyle(color: Colors.blueGrey, fontSize: 11)),
+            title: const Text(
+              "Wi-Fi Only Mode",
+              style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
+            subtitle: const Text(
+              "Auto-pauses when switching to cellular",
+              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
+            ),
             value: _downloadService.wifiOnly,
             activeColor: const Color(0xff00ff88),
-            onChanged: (val) {
-              setState(() {
-                _downloadService.setWifiOnly(val);
-              });
+            onChanged: (val) async {
+              await _downloadService.setWifiOnly(val);
+              if (mounted) {
+                setState(() {});
+              }
             },
           ),
           const Divider(color: Colors.blueGrey, height: 1),
           // Power Saver Mode
           SwitchListTile(
-            title: const Text("Power Saver Mode", style: TextStyle(color: Colors.white, fontSize: 14)),
-            subtitle: const Text("Halts active queues when battery is below 15%", style: TextStyle(color: Colors.blueGrey, fontSize: 11)),
+            title: const Text(
+              "Power Saver Mode",
+              style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
+            subtitle: const Text(
+              "Halts active queues when battery is below 15%",
+              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
+            ),
             value: _downloadService.powerSaver,
             activeColor: const Color(0xff00ff88),
-            onChanged: (val) {
-              setState(() {
-                _downloadService.setPowerSaver(val);
-              });
+            onChanged: (val) async {
+              await _downloadService.setPowerSaver(val);
+              if (mounted) {
+                setState(() {});
+              }
             },
+          ),
+          const Divider(color: Colors.blueGrey, height: 1),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              "Concurrent Downloads",
+              style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
+            subtitle: const Text(
+              "Default is 3 to balance speed and stability.",
+              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
+            ),
+            trailing: Container(
+              decoration: BoxDecoration(
+                color: AppColors.panel,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.stroke),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _downloadService.maxConcurrentDownloads > 1
+                        ? () => _updateConcurrentDownloads(
+                            _downloadService.maxConcurrentDownloads - 1,
+                          )
+                        : null,
+                    icon: const Icon(Icons.remove, size: 18),
+                  ),
+                  Text(
+                    _downloadService.maxConcurrentDownloads.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _downloadService.maxConcurrentDownloads < 5
+                        ? () => _updateConcurrentDownloads(
+                            _downloadService.maxConcurrentDownloads + 1,
+                          )
+                        : null,
+                    icon: const Icon(Icons.add, size: 18),
+                  ),
+                ],
+              ),
+            ),
           ),
           const Divider(color: Colors.blueGrey, height: 1),
           const Spacer(),
           Center(
             child: Text(
               "YT Utils • Local-first media utility v1.0.0",
-              style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 11),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.3),
+                fontSize: 11,
+              ),
             ),
           ),
           const SizedBox(height: 80), // padding from player
         ],
+      ),
+    );
+  }
+
+  Widget _buildLibraryList(List<VideoJob> jobs, {required String emptyLabel}) {
+    if (jobs.isEmpty) {
+      return Center(
+        child: Text(
+          _searchQuery.isNotEmpty ? "No matching files." : emptyLabel,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.4),
+            fontSize: 13.0,
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: jobs.length,
+      itemBuilder: (context, index) {
+        return VideoCard(job: jobs[index]);
+      },
+    );
+  }
+
+  Widget _buildStatusPill(String label, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withOpacity(0.22)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: accent,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
