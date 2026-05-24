@@ -39,7 +39,6 @@ The core value is still fast, reliable YouTube media capture, but that alone is 
 - [ ] Queue management UX
 - [ ] Better settings for download behavior
 - [ ] More professional library structure
-- [ ] App naming and platform branding should be changed to `YT Utils`
 
 ### Not implemented yet
 
@@ -48,7 +47,6 @@ The core value is still fast, reliable YouTube media capture, but that alone is 
 - [ ] Separate video and audio library tabs
 - [ ] Standardized media player UX
 - [ ] Real native app icon assets
-- [ ] Native Android/iOS splash assets
 - [ ] Download quality controls
 - [ ] Queue reorder / pause / resume all
 - [ ] Storage usage manager
@@ -256,7 +254,7 @@ These are the best candidates that go beyond basic downloading:
 - [ ] Sorting and filters
 - [ ] Duplicate detection
 - [ ] Storage usage manager
-- [ ] Native app icon and splash assets
+- [ ] Native app icon assets
 
 ### P2
 
@@ -268,11 +266,11 @@ These are the best candidates that go beyond basic downloading:
 
 ## Branding
 
-- [ ] Change visible app name to `YT Utils`
-- [ ] Update Android app label
-- [ ] Update iOS display name
+- [x] Change visible app name to `YT Utils`
+- [x] Update Android app label
+- [x] Update iOS display name
+- [x] Replace native splash assets
 - [ ] Replace launcher icons
-- [ ] Replace native splash assets
 
 ## Downloader
 
@@ -326,7 +324,6 @@ Use this section as the single execution tracker.
 
 ### In Progress
 
-- [ ] Product rename to `YT Utils`
 - [ ] Professional app polish
 
 ### Next Up
@@ -346,7 +343,7 @@ Use this section as the single execution tracker.
 5. Split audio/video library
 6. Simplify and standardize playback
 7. Add sorting, filtering, duplicate detection
-8. Add native icons and native splash assets
+8. Add native icon assets
 
 ## Notes
 
