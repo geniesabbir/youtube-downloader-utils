@@ -1,0 +1,43 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+def newBuildDir = rootProject.layout.buildDirectory.dir("../../build").get()
+rootProject.layout.buildDirectory.value(newBuildDir)
+
+subprojects {
+    def newSubprojectBuildDir = newBuildDir.dir(project.name)
+    project.layout.buildDirectory.value(newSubprojectBuildDir)
+}
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+subprojects {
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            def androidExt = project.extensions.findByName("android")
+            if (androidExt != null) {
+                def targetComp = androidExt.compileOptions.targetCompatibility.toString()
+                if (targetComp == "1.8" || targetComp == "VERSION_1_8") {
+                    jvmTarget = "1.8"
+                } else if (targetComp == "11" || targetComp == "VERSION_11") {
+                    jvmTarget = "11"
+                } else if (targetComp == "17" || targetComp == "VERSION_17") {
+                    jvmTarget = "17"
+                } else {
+                    jvmTarget = "17"
+                }
+            } else {
+                jvmTarget = "17"
+            }
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.layout.buildDirectory
+}
