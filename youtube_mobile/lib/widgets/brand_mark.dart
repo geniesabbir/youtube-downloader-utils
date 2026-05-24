@@ -211,7 +211,7 @@ class BrandLockup extends StatelessWidget {
                 colors: [AppColors.cloud, AppColors.cyan],
               ).createShader(bounds),
               child: Text(
-                "VOID ARCHIVE",
+                "YT UTILS",
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: compact ? 18 : 24,
@@ -223,7 +223,7 @@ class BrandLockup extends StatelessWidget {
             if (displayTagline) ...[
               const SizedBox(height: 4),
               Text(
-                "Private offline capture for lectures and long-form video.",
+                "Batch download, organize, and play YouTube media offline.",
                 style: TextStyle(
                   color: AppColors.muted,
                   fontSize: compact ? 10 : 12,

@@ -69,7 +69,7 @@ class PlaybackService {
         job.localPath!,
         tag: MediaItem(
           id: job.jobId,
-          album: job.isAudio ? "Audio Archives" : "Video Lecture Archives",
+          album: job.isAudio ? "YT Utils Audio" : "YT Utils Video",
           title: job.title,
           artist: job.author,
           artUri: null, // Optionally parse thumbnail locally

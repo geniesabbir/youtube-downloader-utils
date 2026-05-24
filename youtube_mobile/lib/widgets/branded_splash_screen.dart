@@ -35,7 +35,7 @@ class BrandedSplashScreen extends StatelessWidget {
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 320),
                     child: Text(
-                      "Archive video cleanly, keep playback local, and make every saved file feel organized from the first tap.",
+                      "Download YouTube videos and audio faster, keep files local, and manage offline media with less friction.",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: AppColors.cloud.withOpacity(0.72),

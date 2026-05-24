@@ -1,4 +1,4 @@
-package com.voidarchive.youtube_mobile
+package com.voidarchive.ytutils
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

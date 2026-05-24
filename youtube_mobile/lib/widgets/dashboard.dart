@@ -407,7 +407,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
           const Spacer(),
           Center(
             child: Text(
-              "Local-first • Serverless Archive Utility v1.0.0",
+              "YT Utils • Local-first media utility v1.0.0",
               style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 11),
             ),
           ),

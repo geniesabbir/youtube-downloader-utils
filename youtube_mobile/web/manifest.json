@@ -1,11 +1,11 @@
 {
-    "name": "youtube_mobile",
-    "short_name": "youtube_mobile",
+    "name": "YT Utils",
+    "short_name": "YT Utils",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Batch download, organize, and play YouTube media offline.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

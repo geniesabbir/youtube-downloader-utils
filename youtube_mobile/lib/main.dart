@@ -12,8 +12,8 @@ Future<void> main() async {
   // Initialize lock screen playback engine
   try {
     await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.voidarchive.youtube_mobile.channel.audio',
-      androidNotificationChannelName: 'Lecture Playback',
+      androidNotificationChannelId: 'com.voidarchive.ytutils.channel.audio',
+      androidNotificationChannelName: 'YT Utils Playback',
       androidNotificationOngoing: true,
     );
   } catch (_) {}
@@ -37,7 +37,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Void Archive',
+      title: 'YT Utils',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
       home: const AppShell(),

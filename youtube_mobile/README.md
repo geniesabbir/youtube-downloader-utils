@@ -1,16 +1,21 @@
-# youtube_mobile
+# YT Utils
 
-A new Flutter project.
+YT Utils is a Flutter-based YouTube media utility focused on fast batch downloads,
+local offline ownership, and cleaner queue/library workflows than the default
+YouTube experience.
 
-## Getting Started
+## Current Direction
 
-This project is a starting point for a Flutter application.
+- Batch-friendly single and multi-link downloading
+- Public local storage for saved audio and video
+- Persistent offline library across reloads
+- Branded splash, onboarding, and app shell
+- Ongoing roadmap for playlist downloads, concurrency controls, and split audio/video libraries
 
-A few resources to get you started if this is your first Flutter project:
+## Product Planning
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+The working roadmap and progress tracker live in [plan.md](plan.md).
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Development
+
+This project uses Flutter and targets Android, iOS, macOS, Linux, Windows, and web.

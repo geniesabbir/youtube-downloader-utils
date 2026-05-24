@@ -19,26 +19,26 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<_OnboardingPageData> _pages = const [
     _OnboardingPageData(
-      eyebrow: "CAPTURE CLEANLY",
-      title: "Paste once. Queue everything without clutter.",
+      eyebrow: "BATCH FASTER",
+      title: "Paste one link or fifty. Stay in control of the batch.",
       body:
-          "Drop single links or batches, preview chapters, and decide whether each save should land as video or audio before it hits storage.",
+          "YT Utils is built for real download volume. Queue single links, large pasted batches, and later playlist jobs without turning the app into a mess.",
       icon: Icons.queue_rounded,
       colors: [AppColors.cyan, Color(0xff4a7dff)],
     ),
     _OnboardingPageData(
-      eyebrow: "ARCHIVE LOCALLY",
-      title: "Downloads stay accessible like real files.",
+      eyebrow: "KEEP THE FILES",
+      title: "Your downloads should behave like actual media files.",
       body:
-          "Completed media lands in public storage, survives app reloads, and shows up in a proper library instead of disappearing into temporary app state.",
+          "Saved audio and video should survive reloads, stay visible in library, and remain accessible from public storage instead of being trapped in a streaming app silo.",
       icon: Icons.download_done_rounded,
       colors: [Color(0xff7bffb2), Color(0xff2ed8a3)],
     ),
     _OnboardingPageData(
-      eyebrow: "PLAY INSTANTLY",
-      title: "Switch from queueing to watching with no friction.",
+      eyebrow: "USEFUL OFFLINE",
+      title: "Organize, search, and play offline media without fighting the UI.",
       body:
-          "Browse the archive, launch playback fast, and keep the whole flow feeling like a polished media utility rather than a dev prototype.",
+          "The goal is not just downloading. YT Utils is being built to give users what YouTube still lacks: better queueing, clearer libraries, and faster offline access.",
       icon: Icons.play_circle_fill_rounded,
       colors: [Color(0xff8fc7ff), Color(0xff7bffb2)],
     ),
@@ -286,15 +286,15 @@ class _OnboardingPanel extends StatelessWidget {
               children: [
                 _InfoChip(
                   icon: Icons.shield_outlined,
-                  label: "Local-first storage",
+                  label: "Public local storage",
                 ),
                 _InfoChip(
                   icon: Icons.offline_bolt_outlined,
-                  label: "Offline playback",
+                  label: "Offline-first playback",
                 ),
                 _InfoChip(
                   icon: Icons.auto_awesome_outlined,
-                  label: "Cleaner queue flow",
+                  label: "Batch-friendly workflow",
                 ),
               ],
             ),
