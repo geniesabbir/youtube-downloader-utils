@@ -680,18 +680,10 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 12),
-          // Wi-Fi Only Toggle
-          SwitchListTile(
-            title: const Text(
-              "Wi-Fi Only Mode",
-              style: TextStyle(color: Colors.white, fontSize: 14),
-            ),
-            subtitle: const Text(
-              "Auto-pauses when switching to cellular",
-              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
-            ),
+          _buildSettingsToggleRow(
+            title: "Wi-Fi Only Mode",
+            subtitle: "Auto-pauses when switching to cellular",
             value: _downloadService.wifiOnly,
-            activeColor: const Color(0xff00ff88),
             onChanged: (val) async {
               await _downloadService.setWifiOnly(val);
               if (mounted) {
@@ -700,18 +692,10 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             },
           ),
           const Divider(color: Colors.blueGrey, height: 1),
-          // Power Saver Mode
-          SwitchListTile(
-            title: const Text(
-              "Power Saver Mode",
-              style: TextStyle(color: Colors.white, fontSize: 14),
-            ),
-            subtitle: const Text(
-              "Halts active queues when battery is below 15%",
-              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
-            ),
+          _buildSettingsToggleRow(
+            title: "Power Saver Mode",
+            subtitle: "Halts active queues when battery is below 15%",
             value: _downloadService.powerSaver,
-            activeColor: const Color(0xff00ff88),
             onChanged: (val) async {
               await _downloadService.setPowerSaver(val);
               if (mounted) {
@@ -720,53 +704,9 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             },
           ),
           const Divider(color: Colors.blueGrey, height: 1),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text(
-              "Concurrent Downloads",
-              style: TextStyle(color: Colors.white, fontSize: 14),
-            ),
-            subtitle: const Text(
-              "Default is 3 to balance speed and stability.",
-              style: TextStyle(color: Colors.blueGrey, fontSize: 11),
-            ),
-            trailing: Container(
-              decoration: BoxDecoration(
-                color: AppColors.panel,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: AppColors.stroke),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _downloadService.maxConcurrentDownloads > 1
-                        ? () => _updateConcurrentDownloads(
-                            _downloadService.maxConcurrentDownloads - 1,
-                          )
-                        : null,
-                    icon: const Icon(Icons.remove, size: 18),
-                  ),
-                  Text(
-                    _downloadService.maxConcurrentDownloads.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed: _downloadService.maxConcurrentDownloads < 5
-                        ? () => _updateConcurrentDownloads(
-                            _downloadService.maxConcurrentDownloads + 1,
-                          )
-                        : null,
-                    icon: const Icon(Icons.add, size: 18),
-                  ),
-                ],
-              ),
-            ),
+          _buildSettingsStepperRow(
+            title: "Concurrent Downloads",
+            subtitle: "Default is 3 to balance speed and stability.",
           ),
           const Divider(color: Colors.blueGrey, height: 1),
           const Spacer(),
@@ -780,6 +720,116 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(height: 80), // padding from player
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsToggleRow({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Switch(
+            value: value,
+            activeColor: const Color(0xff00ff88),
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsStepperRow({
+    required String title,
+    required String subtitle,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.panel,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _downloadService.maxConcurrentDownloads > 1
+                      ? () => _updateConcurrentDownloads(
+                          _downloadService.maxConcurrentDownloads - 1,
+                        )
+                      : null,
+                  icon: const Icon(Icons.remove, size: 18),
+                ),
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    _downloadService.maxConcurrentDownloads.toString(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _downloadService.maxConcurrentDownloads < 5
+                      ? () => _updateConcurrentDownloads(
+                          _downloadService.maxConcurrentDownloads + 1,
+                        )
+                      : null,
+                  icon: const Icon(Icons.add, size: 18),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
