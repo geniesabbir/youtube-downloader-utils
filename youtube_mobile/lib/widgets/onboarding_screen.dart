@@ -19,28 +19,43 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<_OnboardingPageData> _pages = const [
     _OnboardingPageData(
-      eyebrow: "BATCH FASTER",
-      title: "Paste one link or fifty. Stay in control of the batch.",
+      eyebrow: "BATCH CONTROL",
+      title: "Paste single links, large batches, or playlist URLs without chaos.",
       body:
-          "YT Utils is built for real download volume. Queue single links, large pasted batches, and later playlist jobs without turning the app into a mess.",
+          "YT Utils is being shaped around deliberate queueing. Instead of flooding the app the moment you paste links, the next version is planned around staged review, cleaner batch starts, and better high-volume control.",
       icon: Icons.queue_rounded,
       colors: [AppColors.cyan, Color(0xff4a7dff)],
+      highlights: [
+        "Stage pasted URLs before adding them",
+        "Start one controlled batch instead of instant queue spam",
+        "Keep large link sets readable and editable",
+      ],
     ),
     _OnboardingPageData(
-      eyebrow: "KEEP THE FILES",
-      title: "Your downloads should behave like actual media files.",
+      eyebrow: "PLAYLIST READY",
+      title: "Handle real YouTube workflows: playlists, retries, and parallel downloads.",
       body:
-          "Saved audio and video should survive reloads, stay visible in library, and remain accessible from public storage instead of being trapped in a streaming app silo.",
-      icon: Icons.download_done_rounded,
+          "The core feature is still downloading, but it needs the settings and pipeline serious users expect. The roadmap now includes playlist ingestion, selected-entry downloads, and user-controlled concurrency with a stable default.",
+      icon: Icons.download_for_offline_rounded,
       colors: [Color(0xff7bffb2), Color(0xff2ed8a3)],
+      highlights: [
+        "Playlist summary before starting",
+        "Default 3 concurrent downloads",
+        "Retry, pause, and waiting-state clarity",
+      ],
     ),
     _OnboardingPageData(
-      eyebrow: "USEFUL OFFLINE",
-      title: "Organize, search, and play offline media without fighting the UI.",
+      eyebrow: "OFFLINE UTILITY",
+      title: "Keep files local, split audio and video cleanly, and make playback feel standard.",
       body:
-          "The goal is not just downloading. YT Utils is being built to give users what YouTube still lacks: better queueing, clearer libraries, and faster offline access.",
+          "This app should feel like a real offline media utility, not a temporary downloader. That means public files, persistent libraries, separate audio and video access, and familiar playback instead of awkward custom behavior.",
       icon: Icons.play_circle_fill_rounded,
       colors: [Color(0xff8fc7ff), Color(0xff7bffb2)],
+      highlights: [
+        "Public local storage that survives reloads",
+        "Separate audio and video library tabs",
+        "Cleaner standard player experience",
+      ],
     ),
   ];
 
@@ -64,13 +79,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final current = _pages[_page];
+    final height = MediaQuery.sizeOf(context).height;
+    final compact = height < 760;
 
     return BrandBackdrop(
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+            padding: EdgeInsets.fromLTRB(24, compact ? 14 : 18, 24, compact ? 18 : 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -89,7 +106,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: compact ? 16 : 24),
                 Expanded(
                   child: PageView.builder(
                     controller: _controller,
@@ -101,7 +118,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     },
                   ),
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: compact ? 14 : 18),
                 Row(
                   children: [
                     ...List.generate(_pages.length, (index) {
@@ -132,7 +149,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                SizedBox(height: compact ? 14 : 18),
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
@@ -154,12 +171,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        current.title,
+                        current.footerTitle,
                         style: const TextStyle(
                           color: AppColors.cloud,
-                          fontSize: 17,
+                          fontSize: 16,
                           fontWeight: FontWeight.w700,
                           height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        current.footerBody,
+                        style: TextStyle(
+                          color: AppColors.cloud.withOpacity(0.68),
+                          fontSize: 13,
+                          height: 1.45,
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -189,151 +215,158 @@ class _OnboardingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 420),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: AppColors.panel.withOpacity(0.78),
-          borderRadius: BorderRadius.circular(32),
-          border: Border.all(color: AppColors.stroke),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.22),
-              blurRadius: 28,
-              offset: const Offset(0, 20),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Align(
-              alignment: Alignment.center,
-              child: Container(
-                width: 220,
-                height: 220,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      page.colors.first.withOpacity(0.22),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Container(
-                  width: 156,
-                  height: 156,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(36),
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        page.colors.first.withOpacity(0.22),
-                        page.colors.last.withOpacity(0.08),
-                      ],
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.08),
-                    ),
-                  ),
-                  child: Center(
-                    child: Icon(
-                      page.icon,
-                      size: 82,
-                      color: page.colors.first,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              page.eyebrow,
-              style: const TextStyle(
-                color: AppColors.cyan,
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.4,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              page.title,
-              style: const TextStyle(
-                color: AppColors.cloud,
-                fontSize: 28,
-                fontWeight: FontWeight.w800,
-                height: 1.1,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              page.body,
-              style: TextStyle(
-                color: AppColors.cloud.withOpacity(0.72),
-                fontSize: 15,
-                height: 1.6,
-              ),
-            ),
-            const SizedBox(height: 22),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _InfoChip(
-                  icon: Icons.shield_outlined,
-                  label: "Public local storage",
-                ),
-                _InfoChip(
-                  icon: Icons.offline_bolt_outlined,
-                  label: "Offline-first playback",
-                ),
-                _InfoChip(
-                  icon: Icons.auto_awesome_outlined,
-                  label: "Batch-friendly workflow",
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 620;
+        final iconShell = compact ? 140.0 : 168.0;
+        final iconSize = compact ? 72.0 : 82.0;
+        final titleSize = compact ? 20.0 : 24.0;
+
+        return Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 420),
+            padding: EdgeInsets.all(compact ? 20 : 24),
+            decoration: BoxDecoration(
+              color: AppColors.panel.withOpacity(0.78),
+              borderRadius: BorderRadius.circular(32),
+              border: Border.all(color: AppColors.stroke),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.22),
+                  blurRadius: 28,
+                  offset: const Offset(0, 20),
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-    ).animate().fadeIn(duration: 280.ms).slideY(begin: 0.06, end: 0);
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.center,
+                    child: Container(
+                      width: iconShell + 44,
+                      height: iconShell + 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            page.colors.first.withOpacity(0.18),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: iconShell,
+                        height: iconShell,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(36),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              page.colors.first.withOpacity(0.16),
+                              page.colors.last.withOpacity(0.06),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            page.icon,
+                            size: iconSize,
+                            color: page.colors.first,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: compact ? 12 : 18),
+                  Text(
+                    page.eyebrow,
+                    style: const TextStyle(
+                      color: AppColors.cyan,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    page.title,
+                    style: TextStyle(
+                      color: AppColors.cloud,
+                      fontSize: titleSize,
+                      fontWeight: FontWeight.w800,
+                      height: 1.12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    page.body,
+                    style: TextStyle(
+                      color: AppColors.cloud.withOpacity(0.72),
+                      fontSize: compact ? 13.5 : 14.5,
+                      height: 1.55,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  ...page.highlights.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _FeatureLine(
+                        color: page.colors.first,
+                        label: item,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ).animate().fadeIn(duration: 280.ms).slideY(begin: 0.06, end: 0);
+      },
+    );
   }
 }
 
-class _InfoChip extends StatelessWidget {
-  final IconData icon;
+class _FeatureLine extends StatelessWidget {
+  final Color color;
   final String label;
 
-  const _InfoChip({required this.icon, required this.label});
+  const _FeatureLine({required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppColors.stroke),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.mint),
-          const SizedBox(width: 8),
-          Text(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          margin: const EdgeInsets.only(top: 6),
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
             label,
-            style: const TextStyle(
-              color: AppColors.cloud,
+            style: TextStyle(
+              color: AppColors.cloud.withOpacity(0.88),
+              fontSize: 13.5,
               fontWeight: FontWeight.w600,
+              height: 1.45,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -344,6 +377,7 @@ class _OnboardingPageData {
   final String body;
   final IconData icon;
   final List<Color> colors;
+  final List<String> highlights;
 
   const _OnboardingPageData({
     required this.eyebrow,
@@ -351,5 +385,32 @@ class _OnboardingPageData {
     required this.body,
     required this.icon,
     required this.colors,
+    required this.highlights,
   });
+
+  String get footerTitle {
+    switch (eyebrow) {
+      case "BATCH CONTROL":
+        return "Next up: staged batch start";
+      case "PLAYLIST READY":
+        return "Planned defaults: playlist support + 3-way concurrency";
+      case "OFFLINE UTILITY":
+        return "Goal: cleaner libraries and more familiar playback";
+      default:
+        return title;
+    }
+  }
+
+  String get footerBody {
+    switch (eyebrow) {
+      case "BATCH CONTROL":
+        return "We are building this around safer high-volume queueing, not accidental paste-and-pray behavior.";
+      case "PLAYLIST READY":
+        return "Heavy users need playlist import, retry clarity, and download settings that respect speed and stability.";
+      case "OFFLINE UTILITY":
+        return "The app should feel like a polished media tool after download, not just a downloader before it.";
+      default:
+        return body;
+    }
+  }
 }
