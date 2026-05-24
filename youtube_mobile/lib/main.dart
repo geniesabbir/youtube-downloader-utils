@@ -3,7 +3,8 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'services/download_service.dart';
 import 'services/playback_service.dart';
 import 'services/share_service.dart';
-import 'widgets/dashboard.dart';
+import 'theme/app_theme.dart';
+import 'widgets/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,34 +39,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Void Archive',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xff080b0e),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xff0a0d14),
-          elevation: 0,
-        ),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff00d2ff),
-          primary: const Color(0xff00d2ff),
-          secondary: const Color(0xff00ff88),
-          background: const Color(0xff080b0e),
-        ),
-        switchTheme: SwitchThemeData(
-          thumbColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
-              return const Color(0xff00ff88);
-            }
-            return Colors.blueGrey;
-          }),
-          trackColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
-              return const Color(0xff00ff88).withOpacity(0.4);
-            }
-            return Colors.blueGrey.withOpacity(0.4);
-          }),
-        ),
-      ),
-      home: const Dashboard(),
+      theme: AppTheme.dark(),
+      home: const AppShell(),
     );
   }
 }

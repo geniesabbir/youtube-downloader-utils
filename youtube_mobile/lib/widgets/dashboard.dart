@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
+import '../theme/app_theme.dart';
+import 'brand_mark.dart';
 import 'video_card.dart';
 import 'player_overlay.dart';
 
@@ -120,71 +122,46 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xff080b0e),
-      appBar: AppBar(
-        backgroundColor: const Color(0xff0a0d14),
-        elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xff00d2ff), width: 1.5),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Text(
-                "VOID",
-                style: TextStyle(
-                  color: Color(0xff00d2ff),
-                  fontFamily: "monospace",
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16.0,
-                  letterSpacing: 2,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              "ARCHIVE",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w300,
-                fontSize: 16.0,
-                letterSpacing: 2,
-              ),
-            ),
-          ],
+    return BrandBackdrop(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          toolbarHeight: 82,
+          titleSpacing: 18,
+          title: const BrandLockup(
+            compact: true,
+            markSize: 38,
+            showTagline: false,
+          ),
+          bottom: TabBar(
+            controller: _tabController,
+            indicatorColor: AppColors.mint,
+            labelColor: AppColors.mint,
+            unselectedLabelColor: AppColors.muted,
+            tabs: const [
+              Tab(icon: Icon(Icons.download), text: "Queue"),
+              Tab(icon: Icon(Icons.library_books), text: "Library"),
+              Tab(icon: Icon(Icons.tune), text: "Settings"),
+            ],
+          ),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: const Color(0xff00ff88),
-          labelColor: const Color(0xff00ff88),
-          unselectedLabelColor: Colors.blueGrey,
-          tabs: const [
-            Tab(icon: Icon(Icons.download), text: "Queue"),
-            Tab(icon: Icon(Icons.library_books), text: "Library"),
-            Tab(icon: Icon(Icons.tune), text: "Settings"),
-          ],
-        ),
-      ),
-      body: SafeArea(
-        child: Stack(
-          children: [
-            TabBarView(
-              controller: _tabController,
-              children: [
-                _buildQueueTab(),
-                _buildLibraryTab(),
-                _buildSettingsTab(),
-              ],
-            ),
-            // Floating media player overlay
-            const Align(
-              alignment: Alignment.bottomCenter,
-              child: PlayerOverlay(),
-            ),
-          ],
+        body: SafeArea(
+          child: Stack(
+            children: [
+              TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildQueueTab(),
+                  _buildLibraryTab(),
+                  _buildSettingsTab(),
+                ],
+              ),
+              const Align(
+                alignment: Alignment.bottomCenter,
+                child: PlayerOverlay(),
+              ),
+            ],
+          ),
         ),
       ),
     );
