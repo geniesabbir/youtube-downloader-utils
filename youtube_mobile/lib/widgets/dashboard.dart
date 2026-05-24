@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
@@ -23,12 +24,94 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
   bool _isAudioOnly = false;
   String _searchQuery = "";
   bool _biometricsEnabled = false;
+  StreamSubscription? _warningSub;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _loadSettings();
+
+    // Listen to background service warnings and display high-fidelity floating warning toast
+    _warningSub = _downloadService.warningStream.listen((message) {
+      if (mounted) {
+        _showPremiumWarningToast(message);
+      }
+    });
+  }
+
+  void _showPremiumWarningToast(String message) {
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        duration: const Duration(seconds: 6),
+        margin: const EdgeInsets.only(bottom: 70, left: 16, right: 16), // float gracefully above player overlay
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+          decoration: BoxDecoration(
+            color: const Color(0xff1c1410).withOpacity(0.95), // deep warm spatial charcoal
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.amber.withOpacity(0.4),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.amber.withOpacity(0.15),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.amber,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      "NETWORK FILTER ENCOUNTERED",
+                      style: TextStyle(
+                        color: Colors.amber,
+                        fontSize: 10.0,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      message,
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 12.0,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadSettings() async {
@@ -40,6 +123,7 @@ class _DashboardState extends State<Dashboard> with SingleTickerProviderStateMix
 
   @override
   void dispose() {
+    _warningSub?.cancel();
     _tabController.dispose();
     _urlInputController.dispose();
     _searchController.dispose();

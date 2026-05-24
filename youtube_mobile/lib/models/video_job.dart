@@ -42,6 +42,7 @@ class VideoJob {
   String? localPath;
   bool isAudio;
   bool downloadTriggered;
+  String? thumbnailUrl;
   List<Chapter> chapters;
 
   VideoJob({
@@ -60,6 +61,7 @@ class VideoJob {
     this.localPath,
     this.isAudio = false,
     this.downloadTriggered = false,
+    this.thumbnailUrl = "",
     this.chapters = const [],
   });
 
@@ -80,6 +82,7 @@ class VideoJob {
       localPath: json['localPath'] as String?,
       isAudio: json['isAudio'] as bool? ?? false,
       downloadTriggered: json['downloadTriggered'] as bool? ?? false,
+      thumbnailUrl: json['thumbnailUrl'] as String?,
       chapters: (json['chapters'] as List<dynamic>?)
               ?.map((e) => Chapter.fromJson(e as Map<String, dynamic>))
               .toList() ??
@@ -104,6 +107,7 @@ class VideoJob {
       'localPath': localPath,
       'isAudio': isAudio,
       'downloadTriggered': downloadTriggered,
+      'thumbnailUrl': thumbnailUrl,
       'chapters': chapters.map((e) => e.toJson()).toList(),
     };
   }
@@ -121,6 +125,7 @@ class VideoJob {
     String? localPath,
     bool? isAudio,
     bool? downloadTriggered,
+    String? thumbnailUrl,
     List<Chapter>? chapters,
   }) {
     return VideoJob(
@@ -139,6 +144,7 @@ class VideoJob {
       localPath: localPath ?? this.localPath,
       isAudio: isAudio ?? this.isAudio,
       downloadTriggered: downloadTriggered ?? this.downloadTriggered,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       chapters: chapters ?? this.chapters,
     );
   }

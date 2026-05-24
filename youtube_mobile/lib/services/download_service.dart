@@ -1,25 +1,56 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '../models/video_job.dart';
 
+class AntiRateLimitClient extends http.BaseClient {
+  final http.Client _inner = http.Client();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    // Add realistic headers to mimic a legitimate web browser session
+    request.headers['User-Agent'] =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    request.headers['Accept'] = '*/*';
+    request.headers['Accept-Language'] = 'en-US,en;q=0.9';
+    request.headers['Sec-Fetch-Mode'] = 'navigate';
+    return _inner.send(request);
+  }
+
+  @override
+  void close() {
+    _inner.close();
+    super.close();
+  }
+}
+
 class DownloadService {
+  static const String _queuePrefsKey = 'download_queue_jobs';
   static final DownloadService _instance = DownloadService._internal();
   factory DownloadService() => _instance;
   DownloadService._internal();
 
-  final YoutubeExplode _yt = YoutubeExplode();
+  final YoutubeExplode _yt = YoutubeExplode(YoutubeHttpClient(AntiRateLimitClient()));
   final List<VideoJob> _queue = [];
   bool _isProcessing = false;
 
   final StreamController<List<VideoJob>> _queueController = StreamController<List<VideoJob>>.broadcast();
   Stream<List<VideoJob>> get queueStream => _queueController.stream;
   List<VideoJob> get queue => List.unmodifiable(_queue);
+
+  final StreamController<String> _warningController = StreamController<String>.broadcast();
+  Stream<String> get warningStream => _warningController.stream;
+
+  void triggerWarning(String message) {
+    _warningController.add(message);
+  }
 
   final Connectivity _connectivity = Connectivity();
   final Battery _battery = Battery();
@@ -36,6 +67,10 @@ class DownloadService {
     final prefs = await SharedPreferences.getInstance();
     _wifiOnly = prefs.getBool('download_wifi_only') ?? false;
     _powerSaver = prefs.getBool('download_power_saver') ?? false;
+    await _loadPersistedQueue(prefs);
+    await _restoreJobsFromStorage();
+    _queueController.add(_queue);
+    await _persistQueue();
 
     // Listen to network changes
     _connectivitySub = _connectivity.onConnectivityChanged.listen((ConnectivityResult result) {
@@ -75,6 +110,7 @@ class DownloadService {
     );
     _queue.add(job);
     _queueController.add(_queue);
+    await _persistQueue();
     
     // Proactively start discovering and downloading
     _processQueue();
@@ -105,6 +141,7 @@ class DownloadService {
       }
       _queue.removeAt(jobIndex);
       _queueController.add(_queue);
+      await _persistQueue();
     }
   }
 
@@ -117,6 +154,7 @@ class DownloadService {
         status: "Queued",
       );
       _queueController.add(_queue);
+      await _persistQueue();
       _processQueue();
     }
   }
@@ -134,6 +172,7 @@ class DownloadService {
         downloadTriggered: wasDiscovered,
       );
       _queueController.add(_queue);
+      await _persistQueue();
       _processQueue();
     }
   }
@@ -159,6 +198,7 @@ class DownloadService {
         }
       }
       _queueController.add(_queue);
+      await _persistQueue();
     } else {
       // Resume queue
       _processQueue();
@@ -237,15 +277,24 @@ class DownloadService {
         duration: _formatDuration(video.duration ?? Duration.zero),
         discovered: true,
         status: "Analyzed",
+        thumbnailUrl: 'https://img.youtube.com/vi/${video.id.value}/mqdefault.jpg',
         chapters: chaptersList,
       );
-    } catch (_) {
+    } catch (e, stack) {
+      print("DISCOVERY ERROR: $e");
+      print(stack);
+      String displayStatus = "Discovery failed: $e";
+      if (e.toString().contains("RequestLimitExceededException") || e.toString().contains("rate limiting") || e.toString().contains("429")) {
+        displayStatus = "Rate Limited: Use Cellular Data or a VPN";
+        triggerWarning("YouTube Rate Limit: Switch to Mobile Data or a VPN.");
+      }
       _queue[index] = job.copyWith(
         discoverFailed: true,
-        status: "Discovery failed",
+        status: displayStatus,
       );
     }
     _queueController.add(_queue);
+    await _persistQueue();
   }
 
   Future<void> _downloadJob(int index) async {
@@ -321,6 +370,7 @@ class DownloadService {
             status: "Paused (Constraints Breached)",
           );
           _queueController.add(_queue);
+          await _persistQueue();
           return;
         }
 
@@ -362,14 +412,151 @@ class DownloadService {
         progress: 1.0,
         localPath: localFilePath,
       );
-    } catch (_) {
+    } catch (e, stack) {
+      print("DOWNLOAD ERROR: $e");
+      print(stack);
+      String displayStatus = "Download failed";
+      if (e.toString().contains("RequestLimitExceededException") || e.toString().contains("rate limiting") || e.toString().contains("429")) {
+        displayStatus = "Rate Limited: Use Cellular Data or a VPN";
+        triggerWarning("YouTube Rate Limit: Switch to Mobile Data or a VPN.");
+      }
       _queue[index] = job.copyWith(
         downloading: false,
         downloadFailed: true,
-        status: "Download failed",
+        status: displayStatus,
       );
     }
     _queueController.add(_queue);
+    await _persistQueue();
+  }
+
+  Future<void> _loadPersistedQueue(SharedPreferences prefs) async {
+    final rawQueue = prefs.getString(_queuePrefsKey);
+    if (rawQueue == null || rawQueue.isEmpty) return;
+
+    try {
+      final decoded = jsonDecode(rawQueue) as List<dynamic>;
+      final List<VideoJob> hydratedJobs = [];
+
+      for (final item in decoded) {
+        final job = VideoJob.fromJson(item as Map<String, dynamic>);
+        final localPath = job.localPath;
+        final fileExists = localPath != null && await File(localPath).exists();
+
+        if (localPath != null && !fileExists) {
+          if (job.status == "Completed") {
+            continue;
+          }
+
+          hydratedJobs.add(job.copyWith(
+            localPath: null,
+            progress: 0.0,
+            downloading: false,
+            downloadFailed: true,
+            status: "File missing. Retry download.",
+          ));
+          continue;
+        }
+
+        if (job.downloading) {
+          hydratedJobs.add(job.copyWith(
+            downloading: false,
+            progress: fileExists ? job.progress : 0.0,
+            status: job.localPath == null ? "Paused after restart" : job.status,
+          ));
+          continue;
+        }
+
+        hydratedJobs.add(job);
+      }
+
+      _queue
+        ..clear()
+        ..addAll(hydratedJobs);
+    } catch (_) {
+      await prefs.remove(_queuePrefsKey);
+      _queue.clear();
+    }
+  }
+
+  Future<void> _restoreJobsFromStorage() async {
+    final existingPaths = _queue
+        .map((job) => job.localPath)
+        .whereType<String>()
+        .toSet();
+
+    final directories = <Directory>[];
+
+    if (Platform.isAndroid) {
+      directories.add(Directory('/storage/emulated/0/Download'));
+    }
+
+    final appDocsDir = await getApplicationDocumentsDirectory();
+    directories.add(Directory('${appDocsDir.path}/archives'));
+
+    for (final directory in directories) {
+      if (!await directory.exists()) continue;
+
+      final entities = await directory.list().toList();
+      for (final entity in entities) {
+        if (entity is! File) continue;
+
+        final path = entity.path;
+        if (existingPaths.contains(path)) continue;
+
+        final restored = _restoreJobFromFile(entity);
+        if (restored == null) continue;
+
+        _queue.add(restored);
+        existingPaths.add(path);
+      }
+    }
+  }
+
+  VideoJob? _restoreJobFromFile(File file) {
+    final fileName = file.uri.pathSegments.isNotEmpty ? file.uri.pathSegments.last : file.path;
+    final extension = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+    if (extension != 'mp3' && extension != 'mp4') {
+      return null;
+    }
+
+    final dotIndex = fileName.lastIndexOf('.');
+    final baseName = dotIndex == -1 ? fileName : fileName.substring(0, dotIndex);
+    final separatorIndex = baseName.indexOf('_');
+
+    String jobId = DateTime.now().millisecondsSinceEpoch.toString();
+    String inferredTitle = baseName;
+
+    if (separatorIndex > 0) {
+      jobId = baseName.substring(0, separatorIndex);
+      inferredTitle = baseName.substring(separatorIndex + 1);
+    }
+
+    inferredTitle = inferredTitle.replaceAll('_', ' ').trim();
+    if (inferredTitle.isEmpty) {
+      inferredTitle = 'Recovered Download';
+    }
+
+    return VideoJob(
+      jobId: jobId,
+      sourceUrl: file.path,
+      targetUrl: file.path,
+      title: inferredTitle,
+      author: 'Recovered from storage',
+      duration: 'N/A',
+      status: 'Completed',
+      progress: 1.0,
+      discovered: true,
+      localPath: file.path,
+      isAudio: extension == 'mp3',
+      downloadTriggered: true,
+    );
+  }
+
+  Future<void> _persistQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    final payload = _queue.map((job) => job.toJson()).toList();
+    await prefs.setString(_queuePrefsKey, jsonEncode(payload));
   }
 
   List<Chapter> _parseChapters(String description, Duration videoDuration) {
@@ -423,5 +610,6 @@ class DownloadService {
     _connectivitySub?.cancel();
     _batterySub?.cancel();
     _queueController.close();
+    _warningController.close();
   }
 }

@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
@@ -24,7 +22,7 @@ class VideoCard extends StatelessWidget {
     final bool isCompleted = job.status == "Completed" && job.localPath != null;
 
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16.0),
         border: Border.all(
@@ -57,8 +55,8 @@ class VideoCard extends StatelessWidget {
                   children: [
                     // Glowing cyber icon placeholder or thumbnail
                     Container(
-                      width: 50,
-                      height: 50,
+                      width: (job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty) ? 80 : 55,
+                      height: 55,
                       decoration: BoxDecoration(
                         color: const Color(0xff0a0d14),
                         borderRadius: BorderRadius.circular(8.0),
@@ -68,14 +66,46 @@ class VideoCard extends StatelessWidget {
                               : const Color(0xff00d2ff).withOpacity(0.3),
                         ),
                       ),
-                      child: Center(
-                        child: Icon(
-                          job.isAudio ? Icons.music_note : Icons.play_arrow,
-                          color: isCompleted
-                              ? const Color(0xff00ff88)
-                              : const Color(0xff00d2ff),
-                          size: 28,
-                        ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(7.0),
+                        child: (job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty)
+                            ? Image.network(
+                                job.thumbnailUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Icon(
+                                      job.isAudio ? Icons.music_note : Icons.play_arrow,
+                                      color: isCompleted
+                                          ? const Color(0xff00ff88)
+                                          : const Color(0xff00d2ff),
+                                      size: 28,
+                                    ),
+                                  );
+                                },
+                                loadingBuilder: (context, child, loadingProgress) {
+                                  if (loadingProgress == null) return child;
+                                  return const Center(
+                                    child: SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xff00d2ff)),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              )
+                            : Center(
+                                child: Icon(
+                                  job.isAudio ? Icons.music_note : Icons.play_arrow,
+                                  color: isCompleted
+                                      ? const Color(0xff00ff88)
+                                      : const Color(0xff00d2ff),
+                                  size: 28,
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -289,11 +319,6 @@ class VideoCard extends StatelessWidget {
                           ),
                         if (isCompleted) ...[
                           IconButton(
-                            icon: const Icon(Icons.share, color: Color(0xff00ff88)),
-                            tooltip: "Export to Downloads/Gallery",
-                            onPressed: () => _exportToPublicGallery(context),
-                          ),
-                          IconButton(
                             icon: const Icon(Icons.edit_note, color: Color(0xff00d2ff)),
                             tooltip: "Edit Tags",
                             onPressed: () => _openTagEditor(context),
@@ -386,54 +411,6 @@ class VideoCard extends StatelessWidget {
         const SnackBar(
           content: Text("File locked securely in Biometric Enclave Vault."),
           backgroundColor: Color(0xff00ff88),
-        ),
-      );
-    }
-  }
-
-  Future<void> _exportToPublicGallery(BuildContext context) async {
-    try {
-      if (job.localPath == null) return;
-      final file = File(job.localPath!);
-      if (!await file.exists()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Source file not found on disk"),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
-
-      // Request storage permission for Android
-      if (Platform.isAndroid) {
-        var status = await Permission.storage.request();
-        if (status.isDenied) {
-          await Permission.videos.request();
-        }
-      }
-
-      final directory = Directory('/storage/emulated/0/Download');
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
-
-      final fileName = job.localPath!.split('/').last;
-      final publicPath = '${directory.path}/$fileName';
-
-      await file.copy(publicPath);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Exported to Downloads: $fileName"),
-          backgroundColor: const Color(0xff00ff88),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Export failed: $e"),
-          backgroundColor: Colors.redAccent,
         ),
       );
     }
