@@ -476,6 +476,47 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+            // ── Queue action bar ────────────────────────────────────
+            if (activeJobs.isNotEmpty)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildQueueAction(
+                      icon: Icons.pause_circle_outline,
+                      label: 'Pause All',
+                      color: Colors.amber,
+                      onTap: () => _downloadService.pauseAll(),
+                    ),
+                    const SizedBox(width: 8),
+                    _buildQueueAction(
+                      icon: Icons.play_circle_outline,
+                      label: 'Resume All',
+                      color: AppColors.mint,
+                      onTap: () => _downloadService.resumeAll(),
+                    ),
+                    if (activeJobs.any((j) => j.discoverFailed || j.downloadFailed)) ...[
+                      const SizedBox(width: 8),
+                      _buildQueueAction(
+                        icon: Icons.refresh_rounded,
+                        label: 'Retry Failed',
+                        color: Colors.orangeAccent,
+                        onTap: () => _downloadService.retryAllFailed(),
+                      ),
+                    ],
+                    if (queue.any((j) => j.localPath != null)) ...[
+                      const SizedBox(width: 8),
+                      _buildQueueAction(
+                        icon: Icons.playlist_remove,
+                        label: 'Clear Done',
+                        color: Colors.blueGrey,
+                        onTap: () => _downloadService.clearCompleted(),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             const SizedBox(height: 10),
           ],
         );
@@ -831,6 +872,42 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildQueueAction({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.25)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 15),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

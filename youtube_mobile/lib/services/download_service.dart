@@ -146,7 +146,29 @@ class DownloadService {
 
   Future<int> addJobs(List<String> urls, {bool isAudio = false}) async {
     final resolvedUrls = await _resolveQueueableUrls(urls);
+    final existingVideoIds = _queue
+        .map((j) => j.videoId)
+        .whereType<String>()
+        .toSet();
+    final existingSourceUrls = _queue.map((j) => j.sourceUrl).toSet();
+
+    int added = 0;
+    int skipped = 0;
     for (final url in resolvedUrls) {
+      // Deduplicate by video ID or exact URL
+      final uri = Uri.tryParse(url);
+      final vid = uri?.queryParameters['v'] ??
+          (uri?.host.contains('youtu.be') == true
+              ? uri?.pathSegments.firstOrNull
+              : null);
+      if ((vid != null && existingVideoIds.contains(vid)) ||
+          existingSourceUrls.contains(url)) {
+        skipped++;
+        continue;
+      }
+      if (vid != null) existingVideoIds.add(vid);
+      existingSourceUrls.add(url);
+
       final jobId = '${DateTime.now().microsecondsSinceEpoch}_${_queue.length}';
       _queue.add(
         VideoJob(
@@ -156,11 +178,18 @@ class DownloadService {
           isAudio: isAudio,
         ),
       );
+      added++;
+    }
+
+    if (skipped > 0) {
+      triggerWarning(
+        '$skipped duplicate${skipped == 1 ? '' : 's'} skipped — already in queue or library.',
+      );
     }
     _emitQueue();
     await _persistQueue();
     _processQueue();
-    return resolvedUrls.length;
+    return added;
   }
 
   Future<void> analyzeUrls(String batchText, {bool isAudio = false}) async {
@@ -239,6 +268,7 @@ class DownloadService {
     _queue[jobIndex] = _queue[jobIndex].copyWith(
       isAudio: isAudio,
       downloadTriggered: true,
+      isPaused: false,
       status: 'Waiting for slot',
       downloadFailed: false,
     );
@@ -246,6 +276,96 @@ class DownloadService {
     _emitQueue();
     await _persistQueue();
     _processQueue();
+  }
+
+  Future<void> pauseJob(String jobId) async {
+    final jobIndex = _jobIndex(jobId);
+    if (jobIndex == -1) return;
+    final job = _queue[jobIndex];
+    if (job.localPath != null || job.isPaused) return;
+    _queue[jobIndex] = job.copyWith(
+      isPaused: true,
+      downloading: false,
+      status: 'Paused',
+    );
+    _activeDownloadJobIds.remove(jobId);
+    _refreshWaitingStatuses();
+    _emitQueue();
+    await _persistQueue();
+  }
+
+  Future<void> resumeJob(String jobId) async {
+    final jobIndex = _jobIndex(jobId);
+    if (jobIndex == -1) return;
+    final job = _queue[jobIndex];
+    if (!job.isPaused) return;
+    _queue[jobIndex] = job.copyWith(
+      isPaused: false,
+      status: 'Waiting for slot',
+    );
+    _refreshWaitingStatuses();
+    _emitQueue();
+    await _persistQueue();
+    _processQueue();
+  }
+
+  Future<void> pauseAll() async {
+    for (var i = 0; i < _queue.length; i++) {
+      final job = _queue[i];
+      if (job.localPath != null || !job.downloadTriggered || job.isPaused) {
+        continue;
+      }
+      _queue[i] = job.copyWith(
+        isPaused: true,
+        downloading: false,
+        status: 'Paused',
+      );
+    }
+    _activeDownloadJobIds.clear();
+    _emitQueue();
+    await _persistQueue();
+  }
+
+  Future<void> resumeAll() async {
+    for (var i = 0; i < _queue.length; i++) {
+      final job = _queue[i];
+      if (!job.isPaused) continue;
+      _queue[i] = job.copyWith(
+        isPaused: false,
+        status: 'Waiting for slot',
+      );
+    }
+    _refreshWaitingStatuses();
+    _emitQueue();
+    await _persistQueue();
+    _processQueue();
+  }
+
+  Future<void> retryAllFailed() async {
+    for (var i = 0; i < _queue.length; i++) {
+      final job = _queue[i];
+      if (!job.discoverFailed && !job.downloadFailed) continue;
+      final wasDiscovered = job.discovered && !job.discoverFailed;
+      _queue[i] = job.copyWith(
+        progress: 0.0,
+        status: wasDiscovered ? 'Waiting for slot' : 'Queued for discovery',
+        discoverFailed: false,
+        downloadFailed: false,
+        downloading: false,
+        isPaused: false,
+        downloadTriggered: wasDiscovered,
+        clearLocalPath: true,
+      );
+    }
+    _emitQueue();
+    await _persistQueue();
+    _processQueue();
+  }
+
+  Future<void> clearCompleted() async {
+    _queue.removeWhere((j) => j.localPath != null);
+    _emitQueue();
+    await _persistQueue();
   }
 
   Future<void> retryJob(String jobId) async {
@@ -354,6 +474,7 @@ class DownloadService {
         (j) =>
             j.discovered &&
             j.downloadTriggered &&
+            !j.isPaused &&
             !j.downloading &&
             !j.downloadFailed &&
             j.localPath == null,
@@ -381,7 +502,8 @@ class DownloadService {
   void _refreshWaitingStatuses() {
     for (var i = 0; i < _queue.length; i++) {
       final job = _queue[i];
-      if (job.localPath != null || job.downloading || job.downloadFailed) {
+      if (job.localPath != null || job.downloading || job.downloadFailed ||
+          job.isPaused) {
         continue;
       }
       if (job.discovered && job.downloadTriggered) {
@@ -560,6 +682,12 @@ class DownloadService {
       await output.close();
       speedStopwatch.stop();
 
+      // Capture actual file size after writing
+      int? actualBytes;
+      try {
+        actualBytes = await file.length();
+      } catch (_) {}
+
       final completeIndex = _jobIndex(jobId);
       if (completeIndex == -1) return;
       _queue[completeIndex] = job.copyWith(
@@ -567,6 +695,7 @@ class DownloadService {
         status: 'Completed',
         progress: 1.0,
         localPath: localFilePath,
+        fileSizeBytes: actualBytes,
       );
     } catch (e, stack) {
       debugPrint('DOWNLOAD ERROR: $e');
