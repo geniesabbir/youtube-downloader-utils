@@ -43,7 +43,7 @@ class DownloadService {
   DownloadService._internal();
 
   final YoutubeExplode _yt = YoutubeExplode(
-    YoutubeHttpClient(AntiRateLimitClient()),
+    httpClient: YoutubeHttpClient(AntiRateLimitClient()),
   );
   final List<VideoJob> _queue = [];
   final Set<String> _activeDownloadJobIds = <String>{};
@@ -574,13 +574,24 @@ class DownloadService {
 
     try {
       final video = await _yt.videos.get(job.sourceUrl);
-      final manifest = await _yt.videos.streamsClient.getManifest(video.id);
+      final manifest = await _yt.videos.streamsClient.getManifest(
+        video.id,
+        ytClients: [
+          YoutubeApiClient.ios,
+          YoutubeApiClient.androidVr,
+        ],
+      );
 
       late StreamInfo streamInfo;
       late String extension;
       if (job.isAudio) {
-        streamInfo = manifest.audioOnly.withHighestBitrate();
-        extension = 'mp3';
+        final audioStreams = manifest.audioOnly.where((s) => s.container == StreamContainer.mp4);
+        if (audioStreams.isNotEmpty) {
+          streamInfo = audioStreams.withHighestBitrate();
+        } else {
+          streamInfo = manifest.audioOnly.withHighestBitrate();
+        }
+        extension = streamInfo.container == StreamContainer.mp4 ? 'm4a' : streamInfo.container.name;
       } else {
         streamInfo = manifest.muxed.withHighestBitrate();
         extension = 'mp4';
@@ -819,7 +830,7 @@ class DownloadService {
     final extension = fileName.contains('.')
         ? fileName.split('.').last.toLowerCase()
         : '';
-    if (extension != 'mp3' && extension != 'mp4') {
+    if (extension != 'mp3' && extension != 'mp4' && extension != 'm4a' && extension != 'webm') {
       return null;
     }
 
@@ -853,7 +864,7 @@ class DownloadService {
       progress: 1.0,
       discovered: true,
       localPath: file.path,
-      isAudio: extension == 'mp3',
+      isAudio: extension == 'mp3' || extension == 'm4a' || extension == 'webm',
       downloadTriggered: true,
     );
   }
