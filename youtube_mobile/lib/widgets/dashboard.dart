@@ -269,26 +269,6 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
     return BrandBackdrop(
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          toolbarHeight: 72,
-          titleSpacing: 18,
-          title: const BrandLockup(
-            compact: true,
-            markSize: 32,
-            showTagline: false,
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.settings_outlined, color: AppColors.mint),
-              onPressed: () {
-                setState(() {
-                  _currentBottomNavIndex = 3; // Swaps focus to settings tab directly
-                });
-              },
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
         body: SafeArea(
           child: Stack(
             children: [
