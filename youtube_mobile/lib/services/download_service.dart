@@ -13,6 +13,7 @@ import 'package:flutter_background/flutter_background.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/video_job.dart';
+import '../core/events/event_bus.dart';
 
 class AntiRateLimitClient extends http.BaseClient {
   final http.Client _inner = http.Client();
@@ -100,6 +101,19 @@ class DownloadService {
       const Duration(seconds: 30),
       (_) => _checkConstraintsAndManageQueue(),
     );
+    EventBus().on<PlaybackProgressEvent>().listen((event) async {
+      final index = _jobIndex(event.jobId);
+      if (index != -1) {
+        _queue[index] = _queue[index].copyWith(
+          watchedPercent: event.watchedPercent,
+          lastPositionSeconds: event.position.inSeconds,
+          lastWatchedAt: DateTime.now(),
+        );
+        _emitQueue();
+        await _persistQueue();
+      }
+    });
+
     _processQueue();
   }
 
@@ -986,6 +1000,15 @@ class DownloadService {
       isAudio: extension == 'mp3' || extension == 'm4a' || extension == 'webm',
       downloadTriggered: true,
     );
+  }
+
+  Future<void> updateJobStateDirectly(String jobId, VideoJob updated) async {
+    final index = _jobIndex(jobId);
+    if (index != -1) {
+      _queue[index] = updated;
+      _emitQueue();
+      await _persistQueue();
+    }
   }
 
   Future<void> _persistQueue() async {

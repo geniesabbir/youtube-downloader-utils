@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import '../models/video_job.dart';
+import '../core/events/event_bus.dart';
 
 enum PlaybackState { idle, loading, playing, paused, completed }
 
@@ -50,11 +51,43 @@ class PlaybackService {
       _stateController.add(_state);
     });
 
-    _audioPlayer.positionStream.listen((pos) => _positionController.add(pos));
+    DateTime lastPositionSave = DateTime.fromMillisecondsSinceEpoch(0);
+    _audioPlayer.positionStream.listen((pos) {
+      _positionController.add(pos);
+      
+      final job = _activeJob;
+      if (job != null && _state == PlaybackState.playing) {
+        final now = DateTime.now();
+        if (now.difference(lastPositionSave).inSeconds >= 5) {
+          lastPositionSave = now;
+          _saveProgress();
+        }
+      }
+    });
+    
     _audioPlayer.bufferedPositionStream.listen((buf) => _bufferedController.add(buf));
     _audioPlayer.durationStream.listen((dur) {
       if (dur != null) _durationController.add(dur);
     });
+  }
+
+  void _saveProgress() {
+    final job = _activeJob;
+    if (job != null) {
+      final pos = _audioPlayer.position;
+      final dur = _audioPlayer.duration ?? Duration.zero;
+      if (dur.inSeconds > 0) {
+        final watchedPercent = (pos.inSeconds / dur.inSeconds).clamp(0.0, 1.0);
+        EventBus().fire(
+          PlaybackProgressEvent(
+            jobId: job.jobId,
+            position: pos,
+            duration: dur,
+            watchedPercent: watchedPercent,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> play(VideoJob job) async {
@@ -77,6 +110,11 @@ class PlaybackService {
       );
 
       await _audioPlayer.setAudioSource(source);
+      
+      if (job.lastPositionSeconds > 0) {
+        await _audioPlayer.seek(Duration(seconds: job.lastPositionSeconds));
+      }
+
       _audioPlayer.play();
     } catch (_) {
       _state = PlaybackState.idle;
@@ -85,6 +123,7 @@ class PlaybackService {
   }
 
   Future<void> pause() async {
+    _saveProgress();
     await _audioPlayer.pause();
   }
 
@@ -93,6 +132,7 @@ class PlaybackService {
   }
 
   Future<void> stop() async {
+    _saveProgress();
     await _audioPlayer.stop();
     _activeJob = null;
     _state = PlaybackState.idle;

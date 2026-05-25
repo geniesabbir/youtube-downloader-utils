@@ -39,6 +39,11 @@ class VideoJob {
   List<Chapter> chapters;
   int? fileSizeBytes;
   double watchedPercent;
+  int lastPositionSeconds;
+  DateTime? lastWatchedAt;
+  List<String> tags;
+  bool isFavorited;
+  String? collectionId;
 
   VideoJob({
     required this.jobId,
@@ -61,6 +66,11 @@ class VideoJob {
     this.chapters = const [],
     this.fileSizeBytes,
     this.watchedPercent = 0.0,
+    this.lastPositionSeconds = 0,
+    this.lastWatchedAt,
+    this.tags = const [],
+    this.isFavorited = false,
+    this.collectionId,
   });
 
   factory VideoJob.fromJson(Map<String, dynamic> json) {
@@ -89,6 +99,11 @@ class VideoJob {
           [],
       fileSizeBytes: json['fileSizeBytes'] as int?,
       watchedPercent: (json['watchedPercent'] as num?)?.toDouble() ?? 0.0,
+      lastPositionSeconds: json['lastPositionSeconds'] as int? ?? 0,
+      lastWatchedAt: json['lastWatchedAt'] != null ? DateTime.parse(json['lastWatchedAt'] as String) : null,
+      tags: (json['tags'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],
+      isFavorited: json['isFavorited'] as bool? ?? false,
+      collectionId: json['collectionId'] as String?,
     );
   }
 
@@ -114,6 +129,11 @@ class VideoJob {
       'chapters': chapters.map((e) => e.toJson()).toList(),
       'fileSizeBytes': fileSizeBytes,
       'watchedPercent': watchedPercent,
+      'lastPositionSeconds': lastPositionSeconds,
+      'lastWatchedAt': lastWatchedAt?.toIso8601String(),
+      'tags': tags,
+      'isFavorited': isFavorited,
+      'collectionId': collectionId,
     };
   }
 
@@ -136,6 +156,13 @@ class VideoJob {
     bool clearLocalPath = false,
     int? fileSizeBytes,
     double? watchedPercent,
+    int? lastPositionSeconds,
+    DateTime? lastWatchedAt,
+    bool clearLastWatchedAt = false,
+    List<String>? tags,
+    bool? isFavorited,
+    String? collectionId,
+    bool clearCollectionId = false,
   }) {
     return VideoJob(
       jobId: jobId,
@@ -158,6 +185,11 @@ class VideoJob {
       chapters: chapters ?? this.chapters,
       fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
       watchedPercent: watchedPercent ?? this.watchedPercent,
+      lastPositionSeconds: lastPositionSeconds ?? this.lastPositionSeconds,
+      lastWatchedAt: clearLastWatchedAt ? null : (lastWatchedAt ?? this.lastWatchedAt),
+      tags: tags ?? this.tags,
+      isFavorited: isFavorited ?? this.isFavorited,
+      collectionId: clearCollectionId ? null : (collectionId ?? this.collectionId),
     );
   }
 

@@ -2,10 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
+import '../services/playback_service.dart';
 import '../theme/app_theme.dart';
 import 'brand_mark.dart';
 import 'video_card.dart';
 import 'player_overlay.dart';
+import 'continue_watching_row.dart';
+import 'library_view.dart';
+import 'workspace_view.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -15,12 +19,12 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
-  late TabController _tabController;
   late TabController _libraryTabController;
   final TextEditingController _urlInputController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   final DownloadService _downloadService = DownloadService();
 
+  int _currentBottomNavIndex = 0;
   bool _isAudioOnly = false;
   bool _isResolvingPlaylist = false;
   String _searchQuery = "";
@@ -30,7 +34,6 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     _libraryTabController = TabController(length: 2, vsync: this);
 
     // Listen to background service warnings and display high-fidelity floating warning toast
@@ -50,16 +53,14 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
         elevation: 0,
         duration: const Duration(seconds: 6),
         margin: const EdgeInsets.only(
-          bottom: 70,
+          bottom: 120, // float gracefully above player overlay + bottom nav
           left: 16,
           right: 16,
-        ), // float gracefully above player overlay
+        ),
         content: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
           decoration: BoxDecoration(
-            color: const Color(
-              0xff1c1410,
-            ).withOpacity(0.95), // deep warm spatial charcoal
+            color: const Color(0xff1c1410).withOpacity(0.95), // deep warm spatial charcoal
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: Colors.amber.withOpacity(0.4),
@@ -124,7 +125,6 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   @override
   void dispose() {
     _warningSub?.cancel();
-    _tabController.dispose();
     _libraryTabController.dispose();
     _urlInputController.dispose();
     _searchController.dispose();
@@ -247,34 +247,31 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          toolbarHeight: 82,
+          toolbarHeight: 72,
           titleSpacing: 18,
           title: const BrandLockup(
             compact: true,
-            markSize: 38,
+            markSize: 32,
             showTagline: false,
           ),
-          bottom: TabBar(
-            controller: _tabController,
-            indicatorColor: AppColors.mint,
-            labelColor: AppColors.mint,
-            unselectedLabelColor: AppColors.muted,
-            tabs: const [
-              Tab(icon: Icon(Icons.download), text: "Queue"),
-              Tab(icon: Icon(Icons.library_books), text: "Library"),
-              Tab(icon: Icon(Icons.tune), text: "Settings"),
-            ],
-          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: AppColors.mint),
+              onPressed: _showSettingsBottomSheet,
+            ),
+            const SizedBox(width: 8),
+          ],
         ),
         body: SafeArea(
           child: Stack(
             children: [
-              TabBarView(
-                controller: _tabController,
+              IndexedStack(
+                index: _currentBottomNavIndex,
                 children: [
+                  _buildHomeTab(),
                   _buildQueueTab(),
                   _buildLibraryTab(),
-                  _buildSettingsTab(),
+                  _buildWorkspaceTab(),
                 ],
               ),
               const Align(
@@ -284,6 +281,567 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             ],
           ),
         ),
+        bottomNavigationBar: _buildBottomNavigationBar(),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar() {
+    return Container(
+      height: 72,
+      decoration: BoxDecoration(
+        color: const Color(0xff080b0e).withOpacity(0.95),
+        border: const Border(
+          top: BorderSide(color: AppColors.stroke, width: 1.0),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            _buildNavItem(0, Icons.home_filled, "Home"),
+            _buildNavItem(1, Icons.download_rounded, "Queue"),
+            _buildNavItem(2, Icons.library_books_rounded, "Library"),
+            _buildNavItem(3, Icons.terminal_rounded, "Workspace"),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData icon, String label) {
+    final bool active = _currentBottomNavIndex == index;
+    final color = active ? AppColors.mint : AppColors.muted;
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _currentBottomNavIndex = index;
+        });
+      },
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              color: active ? AppColors.mint.withOpacity(0.1) : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeTab() {
+    return StreamBuilder<List<VideoJob>>(
+      stream: _downloadService.queueStream,
+      builder: (context, snapshot) {
+        final queue = snapshot.data ?? _downloadService.queue;
+
+        // Fetch Continue Watching jobs
+        final continueWatching = queue
+            .where((j) => j.localPath != null && j.watchedPercent > 0.0 && j.watchedPercent < 0.95)
+            .toList();
+        continueWatching.sort((a, b) => (b.lastWatchedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.lastWatchedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+        // Fetch recent downloads (last 3 completed)
+        final completed = queue.where((j) => j.localPath != null).toList();
+        completed.sort((a, b) => (b.lastWatchedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.lastWatchedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+        final recentDownloads = completed.take(3).toList();
+
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          children: [
+            // Welcome Section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppColors.mint.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.mint.withOpacity(0.2)),
+                    ),
+                    child: const Icon(
+                      Icons.person_outline_rounded,
+                      color: AppColors.mint,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "WELCOME BACK",
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.35),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 10,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      const Text(
+                        "Workspace User",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Quick Capture Input
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.panel,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: AppColors.stroke),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "QUICK CAPTURE",
+                      style: TextStyle(
+                        color: AppColors.cyan,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _urlInputController,
+                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      maxLines: 1,
+                      decoration: InputDecoration(
+                        hintText: "Paste single video or playlist YouTube URL...",
+                        hintStyle: TextStyle(
+                          color: Colors.white.withOpacity(0.25),
+                          fontSize: 13,
+                        ),
+                        border: InputBorder.none,
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.download_rounded, color: AppColors.mint),
+                          onPressed: () {
+                            final text = _urlInputController.text.trim();
+                            if (text.isNotEmpty) {
+                              _downloadService.addJob(text, isAudio: _isAudioOnly);
+                              _urlInputController.clear();
+                              FocusScope.of(context).unfocus();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Staged in Queue tab for analysis.')),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Continue Watching shelf
+            if (continueWatching.isNotEmpty) ...[
+              ContinueWatchingRow(inProgressJobs: continueWatching),
+              const SizedBox(height: 24),
+            ],
+
+            // Storage insights
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: _buildStorageUsageBar(queue),
+            ),
+            const SizedBox(height: 24),
+
+            // Recent Downloads
+            if (recentDownloads.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                child: Text(
+                  "RECENT OFFLINE DOWNLOADS",
+                  style: TextStyle(
+                    color: AppColors.mint,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.panel,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.stroke),
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: recentDownloads.length,
+                    separatorBuilder: (c, i) => const Divider(color: Colors.white10, height: 1),
+                    itemBuilder: (context, index) {
+                      final job = recentDownloads[index];
+                      return ListTile(
+                        dense: true,
+                        leading: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: SizedBox(
+                            width: 50,
+                            height: 30,
+                            child: job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty
+                                ? Image.network(job.thumbnailUrl!, fit: BoxFit.cover)
+                                : const Icon(Icons.movie, color: Colors.white24),
+                          ),
+                        ),
+                        title: Text(
+                          job.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Text(
+                          job.author,
+                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 10),
+                        ),
+                        trailing: Icon(
+                          job.isAudio ? Icons.music_note_outlined : Icons.movie_creation_outlined,
+                          color: job.isAudio ? AppColors.mint : AppColors.cyan,
+                          size: 16,
+                        ),
+                        onTap: () {
+                          PlaybackService().play(job);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 80), // padding from absolute floating player
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildStorageUsageBar(List<VideoJob> queue) {
+    final completed = queue.where((j) => j.localPath != null).toList();
+    final totalBytes = completed.fold<int>(0, (sum, j) => sum + (j.fileSizeBytes ?? 0));
+    final audioBytes = completed.where((j) => j.isAudio).fold<int>(0, (sum, j) => sum + (j.fileSizeBytes ?? 0));
+    final videoBytes = completed.where((j) => !j.isAudio).fold<int>(0, (sum, j) => sum + (j.fileSizeBytes ?? 0));
+
+    final totalDisplay = _formatBytes(totalBytes);
+    final audioDisplay = _formatBytes(audioBytes);
+    final videoDisplay = _formatBytes(videoBytes);
+
+    final double audioRatio = totalBytes > 0 ? audioBytes / totalBytes : 0.0;
+    final double videoRatio = totalBytes > 0 ? videoBytes / totalBytes : 0.0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "STORAGE INSIGHTS",
+                style: TextStyle(
+                  color: AppColors.cyan,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              Text(
+                "$totalDisplay Used",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Dual progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Container(
+              height: 8,
+              color: Colors.white10,
+              child: Row(
+                children: [
+                  if (audioRatio > 0)
+                    Expanded(
+                      flex: (audioRatio * 100).toInt(),
+                      child: Container(color: AppColors.mint),
+                    ),
+                  if (videoRatio > 0)
+                    Expanded(
+                      flex: (videoRatio * 100).toInt(),
+                      child: Container(color: AppColors.cyan),
+                    ),
+                  if (totalBytes == 0)
+                    Expanded(
+                      child: Container(color: Colors.transparent),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.mint, shape: BoxShape.circle)),
+              const SizedBox(width: 6),
+              Text("Audio: $audioDisplay", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
+              const SizedBox(width: 16),
+              Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle)),
+              const SizedBox(width: 6),
+              Text("Video: $videoDisplay", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return '0 B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  Widget _buildWorkspaceTab() {
+    return const WorkspaceView();
+  }
+
+  void _showSettingsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xff0b0f17),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "CONSTRAINTS & RULES",
+                    style: TextStyle(
+                      color: AppColors.cyan,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12.0,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildSettingsToggleRow(
+                    title: "Wi-Fi Only Mode",
+                    subtitle: "Auto-pauses when switching to cellular",
+                    value: _downloadService.wifiOnly,
+                    onChanged: (val) async {
+                      await _downloadService.setWifiOnly(val);
+                      setModalState(() {});
+                      setState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 24),
+                  _buildSettingsToggleRow(
+                    title: "Power Saver Mode",
+                    subtitle: "Halts active queues when battery is below 15%",
+                    value: _downloadService.powerSaver,
+                    onChanged: (val) async {
+                      await _downloadService.setPowerSaver(val);
+                      setModalState(() {});
+                      setState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 24),
+                  _buildSettingsStepperRow(
+                    title: "Concurrent Downloads",
+                    subtitle: "Default is 3 to balance speed and stability.",
+                    setModalState: setModalState,
+                  ),
+                  const SizedBox(height: 24),
+                  Center(
+                    child: Text(
+                      "YT Utils • Local-first media utility v1.0.0",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.2),
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSettingsToggleRow({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Switch(
+            value: value,
+            activeColor: const Color(0xff00ff88),
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsStepperRow({
+    required String title,
+    required String subtitle,
+    required StateSetter setModalState,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.panel,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _downloadService.maxConcurrentDownloads > 1
+                      ? () async {
+                          await _updateConcurrentDownloads(_downloadService.maxConcurrentDownloads - 1);
+                          setModalState(() {});
+                        }
+                      : null,
+                  icon: const Icon(Icons.remove, size: 18),
+                ),
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    _downloadService.maxConcurrentDownloads.toString(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _downloadService.maxConcurrentDownloads < 5
+                      ? () async {
+                          await _updateConcurrentDownloads(_downloadService.maxConcurrentDownloads + 1);
+                          setModalState(() {});
+                        }
+                      : null,
+                  icon: const Icon(Icons.add, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -621,309 +1179,6 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLibraryTab() {
-    return StreamBuilder<List<VideoJob>>(
-      stream: _downloadService.queueStream,
-      builder: (context, snapshot) {
-        final queue = snapshot.data ?? _downloadService.queue;
-        final completedJobs = queue
-            .where((j) => j.localPath != null)
-            .where(
-              (j) =>
-                  _searchQuery.isEmpty ||
-                  j.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                  j.author.toLowerCase().contains(_searchQuery.toLowerCase()),
-            )
-            .toList();
-        final videoJobs = completedJobs.where((j) => !j.isAudio).toList();
-        final audioJobs = completedJobs.where((j) => j.isAudio).toList();
-
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // Search Input
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xff121820),
-                  borderRadius: BorderRadius.circular(12.0),
-                  border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
-                  onChanged: (val) {
-                    setState(() {
-                      _searchQuery = val;
-                    });
-                  },
-                  decoration: InputDecoration(
-                    icon: const Icon(Icons.search, color: Color(0xff00d2ff)),
-                    hintText: "Search offline archive library...",
-                    hintStyle: TextStyle(
-                      color: Colors.white.withOpacity(0.4),
-                      fontSize: 13,
-                    ),
-                    border: InputBorder.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      "COMPLETED OFFLINE ARCHIVES",
-                      style: TextStyle(
-                        color: Color(0xff00ff88),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12.0,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _rescanLibrary,
-                    icon: const Icon(Icons.sync, size: 16),
-                    label: const Text("Re-scan"),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  _buildStatusPill(
-                    'All ${completedJobs.length}',
-                    AppColors.mint,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildStatusPill(
-                    'Videos ${videoJobs.length}',
-                    AppColors.cyan,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildStatusPill(
-                    'Audio ${audioJobs.length}',
-                    const Color(0xfff6c453),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.panel,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.stroke),
-                ),
-                child: TabBar(
-                  controller: _libraryTabController,
-                  indicatorColor: AppColors.mint,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: AppColors.muted,
-                  tabs: const [
-                    Tab(text: "Videos"),
-                    Tab(text: "Audio"),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: TabBarView(
-                  controller: _libraryTabController,
-                  children: [
-                    _buildLibraryList(
-                      videoJobs,
-                      emptyLabel: "No saved videos yet.",
-                    ),
-                    _buildLibraryList(
-                      audioJobs,
-                      emptyLabel: "No saved audio files yet.",
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(
-                height: 60,
-              ), // padding from absolute floating player
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSettingsTab() {
-    return Padding(
-      padding: const EdgeInsets.all(20.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "HARDWARE & CONSTRAINTS RULES",
-            style: TextStyle(
-              color: Color(0xff00d2ff),
-              fontWeight: FontWeight.bold,
-              fontSize: 12.0,
-              letterSpacing: 1.0,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _buildSettingsToggleRow(
-            title: "Wi-Fi Only Mode",
-            subtitle: "Auto-pauses when switching to cellular",
-            value: _downloadService.wifiOnly,
-            onChanged: (val) async {
-              await _downloadService.setWifiOnly(val);
-              if (mounted) {
-                setState(() {});
-              }
-            },
-          ),
-          const Divider(color: Colors.blueGrey, height: 1),
-          _buildSettingsToggleRow(
-            title: "Power Saver Mode",
-            subtitle: "Halts active queues when battery is below 15%",
-            value: _downloadService.powerSaver,
-            onChanged: (val) async {
-              await _downloadService.setPowerSaver(val);
-              if (mounted) {
-                setState(() {});
-              }
-            },
-          ),
-          const Divider(color: Colors.blueGrey, height: 1),
-          _buildSettingsStepperRow(
-            title: "Concurrent Downloads",
-            subtitle: "Default is 3 to balance speed and stability.",
-          ),
-          const Divider(color: Colors.blueGrey, height: 1),
-          const Spacer(),
-          Center(
-            child: Text(
-              "YT Utils • Local-first media utility v1.0.0",
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.3),
-                fontSize: 11,
-              ),
-            ),
-          ),
-          const SizedBox(height: 80), // padding from player
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingsToggleRow({
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Switch(
-            value: value,
-            activeColor: const Color(0xff00ff88),
-            onChanged: onChanged,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingsStepperRow({
-    required String title,
-    required String subtitle,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  subtitle,
-                  style: const TextStyle(color: Colors.blueGrey, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.panel,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: AppColors.stroke),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _downloadService.maxConcurrentDownloads > 1
-                      ? () => _updateConcurrentDownloads(
-                          _downloadService.maxConcurrentDownloads - 1,
-                        )
-                      : null,
-                  icon: const Icon(Icons.remove, size: 18),
-                ),
-                SizedBox(
-                  width: 28,
-                  child: Text(
-                    _downloadService.maxConcurrentDownloads.toString(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _downloadService.maxConcurrentDownloads < 5
-                      ? () => _updateConcurrentDownloads(
-                          _downloadService.maxConcurrentDownloads + 1,
-                        )
-                      : null,
-                  icon: const Icon(Icons.add, size: 18),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildQueueAction({
     required IconData icon,
     required String label,
@@ -960,27 +1215,6 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLibraryList(List<VideoJob> jobs, {required String emptyLabel}) {
-    if (jobs.isEmpty) {
-      return Center(
-        child: Text(
-          _searchQuery.isNotEmpty ? "No matching files." : emptyLabel,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.4),
-            fontSize: 13.0,
-          ),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      itemCount: jobs.length,
-      itemBuilder: (context, index) {
-        return VideoCard(job: jobs[index]);
-      },
-    );
-  }
-
   Widget _buildStatusPill(String label, Color accent) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -998,5 +1232,9 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Widget _buildLibraryTab() {
+    return const LibraryView();
   }
 }

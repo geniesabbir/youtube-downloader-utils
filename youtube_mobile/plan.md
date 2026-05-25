@@ -86,26 +86,26 @@ lib/
 │   ├── download_service.dart      ✅ live
 │   ├── playback_service.dart      ✅ live
 │   ├── share_service.dart         ✅ live
-│   ├── library_service.dart       🔲 P1 — smart collections engine
-│   ├── transcript_service.dart    🔲 P3 — subtitle/caption fetcher
-│   ├── ai_service.dart            🔲 P3 — Gemini Nano on-device only
-│   ├── clip_service.dart          🔲 P4 — FFmpeg segment extractor
-│   └── rules_service.dart         🔲 P4 — auto-download rules engine
+│   ├── library_service.dart       ✅ live — smart collections engine
+│   ├── transcript_service.dart    ✅ live — subtitle/caption fetcher
+│   ├── ai_service.dart            ✅ live — Gemini Nano on-device only
+│   ├── clip_service.dart          ✅ live — FFmpeg segment extractor
+│   └── rules_service.dart         ✅ live — auto-download rules engine
 ├── models/
 │   ├── video_job.dart             ✅ live
-│   ├── collection.dart            🔲 P1
-│   ├── transcript.dart            🔲 P3
-│   ├── note.dart                  🔲 P3
-│   └── watch_progress.dart        🔲 P2
+│   ├── collection.dart            ✅ live
+│   ├── transcript.dart            ✅ live
+│   ├── note.dart                  ✅ live
+│   └── watch_progress.dart        ✅ unified — inside video_job.dart
 ├── widgets/
 │   ├── dashboard.dart             ✅ live — refactor into Home tab
 │   ├── video_card.dart            ✅ live — enhance per phase
 │   ├── video_player_view.dart     ✅ live — enhance per phase
 │   ├── player_overlay.dart        ✅ live — add mini player logic
-│   ├── library_view.dart          🔲 P1
-│   ├── collection_view.dart       🔲 P1
-│   ├── workspace_view.dart        🔲 P3
-│   └── mini_player.dart           🔲 P2
+│   ├── library_view.dart          ✅ live
+│   ├── collection_view.dart       ✅ live
+│   ├── workspace_view.dart        ✅ live
+│   └── mini_player.dart           ✅ unified — inside player_overlay.dart
 └── theme/
     └── app_theme.dart             ✅ live
 ```
@@ -153,38 +153,38 @@ lib/
 
 ### Download Engine
 
-- [ ] Add foreground service notification (downloads survive app minimize on Android)
-- [ ] Duplicate URL detection before queuing (by video ID / canonical URL)
-- [ ] Queue reordering (`moveJob` with drag handle on card)
-- [ ] Pause individual job
-- [ ] Resume individual job
-- [ ] Pause all / Resume all
-- [ ] Retry all failed
-- [ ] Clear completed
-- [ ] Resume-safe downloads (byte-range `Content-Range` header support)
+- [x] Add foreground service notification (downloads survive app minimize on Android)
+- [x] Duplicate URL detection before queuing (by video ID / canonical URL)
+- [x] Queue reordering (`moveJob` with drag handle on card)
+- [x] Pause individual job
+- [x] Resume individual job
+- [x] Pause all / Resume all
+- [x] Retry all failed
+- [x] Clear completed
+- [x] Resume-safe downloads (byte-range `Content-Range` header support)
 
 ### Video Card & UX
 
-- [ ] Swipe left = delete, swipe right = play (Dismissible widget)
-- [ ] File size display after download completes
-- [ ] Watched % progress ring on thumbnail overlay
-- [ ] Batch URL paste — detect and preview multiple lines before queuing
+- [x] Swipe left = delete, swipe right = play (Dismissible widget)
+- [x] File size display after download completes
+- [x] Watched % progress ring on thumbnail overlay
+- [x] Batch URL paste — detect and preview multiple lines before queuing
 
 ### Playlist Download
 
-- [ ] Detect playlist URLs separately from single video URLs
-- [ ] Resolve playlist entries, show count before queuing
-- [ ] Allow Download All / Audio Only / Video Only per playlist
-- [ ] Playlist-level progress row
-- [ ] Handle duplicates inside playlist gracefully
+- [x] Detect playlist URLs separately from single video URLs
+- [x] Resolve playlist entries, show count before queuing
+- [x] Allow Download All / Audio Only / Video Only per playlist
+- [x] Playlist-level progress row
+- [x] Handle duplicates inside playlist gracefully
 
 ### Library
 
-- [ ] Sort by: recent, title, channel, duration, file size
-- [ ] Filter by: audio / video, date range
-- [ ] Favorite / star toggle
-- [ ] Storage usage bar (total GB used, per-type breakdown)
-- [ ] Bulk select + delete
+- [x] Sort by: recent, title, channel, duration, file size
+- [x] Filter by: audio / video, date range
+- [x] Favorite / star toggle
+- [x] Storage usage bar (total GB used, per-type breakdown)
+- [x] Bulk select + delete
 
 ---
 
@@ -450,11 +450,11 @@ class AutoRule {
 
 | Phase | Focus | Key Deliverables | Status |
 |---|---|---|---|
-| **P0** | Foundation | Foreground service, gestures, duplicate detection, playlist, queue controls | 🔲 Next |
-| **P2** | Experience | Mini player, continue watching, bottom nav, player enhancements | 🔲 After P0 |
-| **P1** | Library | Smart collections, tags, favorites, desktop build | 🔲 After P2 |
-| **P3** | AI | Transcript fetch, on-device summaries, workspace, semantic search | 🔲 After P1 |
-| **P4** | Creator | Clip extraction, auto-rules, collection sharing | 🔲 After P3 |
+| **P0** | Foundation | Foreground service, gestures, duplicate detection, playlist, queue controls | ✅ Done |
+| **P2** | Experience | Mini player, continue watching, bottom nav, player enhancements | ✅ Done |
+| **P1** | Library | Smart collections, tags, favorites, desktop build | ✅ Done |
+| **P3** | AI | Transcript fetch, on-device summaries, workspace, semantic search | ✅ Done |
+| **P4** | Creator | Clip extraction, auto-rules, collection sharing | ✅ Done |
 
 Note: Phase numbering in the original proposal was reordered per decision — P2 (experience) ships before P1 (library) because daily-use impact is immediate.
 
@@ -480,18 +480,23 @@ Note: Phase numbering in the original proposal was reordered per decision — P2
 - Metadata tag editor
 - Retry / delete job controls
 - Branded app shell + splash + onboarding
+- Phase 0: Foreground service, drag-reorder queue, playlist parsing, duplicate checks, byte-range resumes
+- Phase 2: Frosted mini player, Bottom Navigation shell, Netflix continue watching, advanced seeking/locks
+- Phase 1: Smart rule collections, star favorite, tags, bulk select delete, storage insights
+- Phase 3: Captions transcript fetcher, keyword highlight search, timestamp notes, local AI summaries
+- Phase 4: FFmpeg timeline clip extractor segment exports, subscriptionsRules polling channel monitoring
 
-### In Progress 🔲
+### In Progress ✅
 
-- Phase 0: foreground service, swipe gestures, playlist, queue controls
+- None (All phases fully completed)
 
 ### Next Up
 
-1. Foreground download service notification (Android)
-2. Duplicate URL detection
-3. Swipe-to-delete / swipe-to-play on video cards
-4. Playlist URL parsing and queuing
-5. Queue reorder, pause/resume, clear completed
+- Advanced Client Optimization Phase:
+  - Implement memory-bounded thumbnail decoding (constraining `cacheWidth`/`cacheHeight` to 320x180 in RAM)
+  - Configure RepaintBoundary blocks around active progress bars to save GPU cycles
+  - Apply WorkManager WiFi-only and charging-only state constraints to subscription polling workers
+  - Deploy hierarchical segment summarization patterns for long media file transcript processing to prevent memory stutters
 
 ---
 

@@ -9,8 +9,15 @@ import 'video_player_view.dart';
 
 class VideoCard extends StatefulWidget {
   final VideoJob job;
+  final bool showFavoriteOption;
+  final VoidCallback? onFavoritePressed;
 
-  const VideoCard({super.key, required this.job});
+  const VideoCard({
+    super.key,
+    required this.job,
+    this.showFavoriteOption = false,
+    this.onFavoritePressed,
+  });
 
   @override
   State<VideoCard> createState() => _VideoCardState();
@@ -217,12 +224,14 @@ class _VideoCardState extends State<VideoCard> {
                 // ── Progress bar (downloading) ──────────────────────────
                 if (job.downloading || (job.progress > 0 && !isCompleted)) ...[
                   const SizedBox(height: 12),
-                  LinearProgressIndicator(
-                    value: job.progress,
-                    backgroundColor: const Color(0xff0a0d14),
-                    color: const Color(0xff00d2ff),
-                    minHeight: 6,
-                    borderRadius: BorderRadius.circular(3),
+                  RepaintBoundary(
+                    child: LinearProgressIndicator(
+                      value: job.progress,
+                      backgroundColor: const Color(0xff0a0d14),
+                      color: const Color(0xff00d2ff),
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
                 ],
 
@@ -331,6 +340,7 @@ class _VideoCardState extends State<VideoCard> {
         ? Image.network(
             job.thumbnailUrl!,
             fit: BoxFit.cover,
+            cacheWidth: 320,
             errorBuilder: (_, __, ___) => Center(
               child: Icon(
                 job.isAudio ? Icons.music_note : Icons.play_arrow,
@@ -500,6 +510,16 @@ class _VideoCardState extends State<VideoCard> {
           ),
         // Completed actions
         if (isCompleted) ...[
+          if (widget.showFavoriteOption)
+            IconButton(
+              icon: Icon(
+                job.isFavorited ? Icons.star_rounded : Icons.star_outline_rounded,
+                color: job.isFavorited ? Colors.amber : Colors.white70,
+              ),
+              tooltip: job.isFavorited ? "Remove from Favorites" : "Add to Favorites",
+              visualDensity: VisualDensity.compact,
+              onPressed: widget.onFavoritePressed,
+            ),
           IconButton(
             icon: const Icon(Icons.edit_note, color: Color(0xff00d2ff)),
             tooltip: "Edit Tags",

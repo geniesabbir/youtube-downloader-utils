@@ -3,6 +3,7 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'services/download_service.dart';
 import 'services/playback_service.dart';
 import 'services/share_service.dart';
+import 'services/rules_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
 
@@ -27,6 +28,9 @@ Future<void> main() async {
 
   final shareService = ShareService();
   shareService.init();
+
+  final rulesService = RulesService();
+  await rulesService.init();
 
   runApp(const MyApp());
 }
