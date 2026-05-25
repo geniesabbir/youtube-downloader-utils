@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../models/video_job.dart';
 
 class EventBus {
   static final EventBus _instance = EventBus._internal();
@@ -32,4 +33,9 @@ class PlaybackProgressEvent {
     required this.duration,
     required this.watchedPercent,
   });
+}
+
+class PlayMediaInWorkspaceEvent {
+  final VideoJob job;
+  PlayMediaInWorkspaceEvent(this.job);
 }

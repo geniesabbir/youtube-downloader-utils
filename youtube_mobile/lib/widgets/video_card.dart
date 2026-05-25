@@ -1,9 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
+import '../core/events/event_bus.dart';
 import 'metadata_editor.dart';
 import 'video_player_view.dart';
 
@@ -549,14 +551,10 @@ class _VideoCardState extends State<VideoCard> {
   }
 
   void _playJob(BuildContext context) {
-    if (job.isAudio) {
-      PlaybackService().play(job);
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => VideoPlayerView(job: job)),
-      );
-    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => VideoPlayerView(job: job)),
+    );
   }
 
   Color _getStatusColor() {

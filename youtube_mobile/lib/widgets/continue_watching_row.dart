@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/video_job.dart';
 import '../services/playback_service.dart';
 import '../theme/app_theme.dart';
+import 'video_player_view.dart';
 
 class ContinueWatchingRow extends StatelessWidget {
   final List<VideoJob> inProgressJobs;
@@ -55,7 +56,10 @@ class ContinueWatchingRow extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 6.0),
       child: GestureDetector(
         onTap: () {
-          PlaybackService().play(job);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => VideoPlayerView(job: job)),
+          );
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/video_job.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
 import '../theme/app_theme.dart';
+import '../core/events/event_bus.dart';
 import 'brand_mark.dart';
 import 'video_card.dart';
 import 'player_overlay.dart';
 import 'continue_watching_row.dart';
 import 'library_view.dart';
-import 'workspace_view.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -30,11 +31,14 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   String _searchQuery = "";
   List<String> _stagedUrls = const [];
   StreamSubscription? _warningSub;
+  StreamSubscription? _playMediaInWorkspaceSub;
+  bool _workspacePlaybackMode = false;
 
   @override
   void initState() {
     super.initState();
     _libraryTabController = TabController(length: 2, vsync: this);
+    _loadSettings();
 
     // Listen to background service warnings and display high-fidelity floating warning toast
     _warningSub = _downloadService.warningStream.listen((message) {
@@ -42,6 +46,24 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
         _showPremiumWarningToast(message);
       }
     });
+
+    // Listen to workspace play routing triggers
+    _playMediaInWorkspaceSub = EventBus().on<PlayMediaInWorkspaceEvent>().listen((event) {
+      if (mounted) {
+        setState(() {
+          _currentBottomNavIndex = 3; // Switch to Workspace tab
+        });
+      }
+    });
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _workspacePlaybackMode = prefs.getBool('prefs_workspace_playback_mode') ?? false;
+      });
+    }
   }
 
   void _showPremiumWarningToast(String message) {
@@ -125,6 +147,7 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   @override
   void dispose() {
     _warningSub?.cancel();
+    _playMediaInWorkspaceSub?.cancel();
     _libraryTabController.dispose();
     _urlInputController.dispose();
     _searchController.dispose();
@@ -257,7 +280,11 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
           actions: [
             IconButton(
               icon: const Icon(Icons.settings_outlined, color: AppColors.mint),
-              onPressed: _showSettingsBottomSheet,
+              onPressed: () {
+                setState(() {
+                  _currentBottomNavIndex = 3; // Swaps focus to settings tab directly
+                });
+              },
             ),
             const SizedBox(width: 8),
           ],
@@ -271,7 +298,7 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                   _buildHomeTab(),
                   _buildQueueTab(),
                   _buildLibraryTab(),
-                  _buildWorkspaceTab(),
+                  _buildSettingsTab(),
                 ],
               ),
               const Align(
@@ -303,7 +330,7 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
             _buildNavItem(0, Icons.home_filled, "Home"),
             _buildNavItem(1, Icons.download_rounded, "Queue"),
             _buildNavItem(2, Icons.library_books_rounded, "Library"),
-            _buildNavItem(3, Icons.terminal_rounded, "Workspace"),
+            _buildNavItem(3, Icons.settings_rounded, "Settings"),
           ],
         ),
       ),
@@ -657,8 +684,123 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
-  Widget _buildWorkspaceTab() {
-    return const WorkspaceView();
+  Widget _buildSettingsTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "CONSTRAINTS & RULES",
+            style: TextStyle(
+              color: AppColors.cyan,
+              fontWeight: FontWeight.w800,
+              fontSize: 12.0,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.panel,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Column(
+              children: [
+                _buildSettingsToggleRow(
+                  title: "Wi-Fi Only Mode",
+                  subtitle: "Auto-pauses when switching to cellular data",
+                  value: _downloadService.wifiOnly,
+                  onChanged: (val) async {
+                    await _downloadService.setWifiOnly(val);
+                    setState(() {});
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 28),
+                _buildSettingsToggleRow(
+                  title: "Power Saver Mode",
+                  subtitle: "Halts active queues when battery drops below 15%",
+                  value: _downloadService.powerSaver,
+                  onChanged: (val) async {
+                    await _downloadService.setPowerSaver(val);
+                    setState(() {});
+                  },
+                ),
+                const Divider(color: Colors.white10, height: 28),
+                _buildSettingsStepperRow(
+                  title: "Concurrent Downloads",
+                  subtitle: "Throttles total parallel downloads to maintain speed stability.",
+                  setModalState: (fn) {
+                    setState(fn);
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            "SYSTEM AUTOMATION RULES",
+            style: TextStyle(
+              color: AppColors.mint,
+              fontWeight: FontWeight.w800,
+              fontSize: 12.0,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.panel,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Subscriptions Rule Polling Monitor",
+                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "Scans subscribed channels in the background and auto-queues new uploads on Wi-Fi connection.",
+                  style: TextStyle(color: Colors.blueGrey, fontSize: 11, height: 1.4),
+                ),
+                const SizedBox(height: 14),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.mint,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Subscription rules polling triggered...", style: TextStyle(fontWeight: FontWeight.bold))),
+                    );
+                  },
+                  icon: const Icon(Icons.sync_rounded, color: Colors.black, size: 18),
+                  label: const Text("FORCE POLL CHANNELS NOW", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11.5)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 48),
+          Center(
+            child: Text(
+              "YT Utils • Local-first media utility v1.0.0",
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.15),
+                fontSize: 10.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
   }
 
   void _showSettingsBottomSheet() {
@@ -695,6 +837,22 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                       await _downloadService.setWifiOnly(val);
                       setModalState(() {});
                       setState(() {});
+                    },
+                  ),
+                  const Divider(color: Colors.white10, height: 24),
+                  _buildSettingsToggleRow(
+                    title: "Workspace Playback Mode",
+                    subtitle: "Automatically play and study inside the Workspace tab",
+                    value: _workspacePlaybackMode,
+                    onChanged: (val) async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('prefs_workspace_playback_mode', val);
+                      setModalState(() {
+                        _workspacePlaybackMode = val;
+                      });
+                      setState(() {
+                        _workspacePlaybackMode = val;
+                      });
                     },
                   ),
                   const Divider(color: Colors.white10, height: 24),
