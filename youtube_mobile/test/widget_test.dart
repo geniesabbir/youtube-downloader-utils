@@ -13,5 +13,6 @@ void main() {
   testWidgets('app shell renders without crashing', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
     expect(find.byType(MyApp), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 2000));
   });
 }

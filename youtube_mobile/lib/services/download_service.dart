@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../models/video_job.dart';
@@ -60,6 +61,7 @@ class DownloadService {
   bool _wifiOnly = false;
   bool _powerSaver = false;
   int _maxConcurrentDownloads = 3;
+  DateTime _lastNotificationUpdate = DateTime.fromMillisecondsSinceEpoch(0);
   StreamSubscription? _connectivitySub;
   StreamSubscription? _batterySub;
 
@@ -146,28 +148,34 @@ class DownloadService {
 
   Future<int> addJobs(List<String> urls, {bool isAudio = false}) async {
     final resolvedUrls = await _resolveQueueableUrls(urls);
-    final existingVideoIds = _queue
-        .map((j) => j.videoId)
-        .whereType<String>()
+    
+    // An existing job is a duplicate at queueing time only if it is already in the queue
+    // in an untriggered/pending state (waiting for format selection).
+    final pendingVideoIds = _queue
+        .where((j) => !j.downloadTriggered && j.localPath == null && j.videoId != null)
+        .map((j) => j.videoId!)
         .toSet();
-    final existingSourceUrls = _queue.map((j) => j.sourceUrl).toSet();
+    final pendingSourceUrls = _queue
+        .where((j) => !j.downloadTriggered && j.localPath == null)
+        .map((j) => j.sourceUrl)
+        .toSet();
 
     int added = 0;
     int skipped = 0;
     for (final url in resolvedUrls) {
-      // Deduplicate by video ID or exact URL
       final uri = Uri.tryParse(url);
       final vid = uri?.queryParameters['v'] ??
           (uri?.host.contains('youtu.be') == true
               ? uri?.pathSegments.firstOrNull
               : null);
-      if ((vid != null && existingVideoIds.contains(vid)) ||
-          existingSourceUrls.contains(url)) {
+      
+      if ((vid != null && pendingVideoIds.contains(vid)) ||
+          pendingSourceUrls.contains(url)) {
         skipped++;
         continue;
       }
-      if (vid != null) existingVideoIds.add(vid);
-      existingSourceUrls.add(url);
+      if (vid != null) pendingVideoIds.add(vid);
+      pendingSourceUrls.add(url);
 
       final jobId = '${DateTime.now().microsecondsSinceEpoch}_${_queue.length}';
       _queue.add(
@@ -202,12 +210,10 @@ class DownloadService {
     final seen = <String>{};
 
     for (final url in urls) {
-      if (_isPlaylistUrl(url)) {
+      if (isPlaylistUrl(url)) {
         try {
-          final playlist = await _yt.playlists.get(url);
-          await for (final video in _yt.playlists.getVideos(playlist.id)) {
-            final videoUrl =
-                'https://www.youtube.com/watch?v=${video.id.value}';
+          final videos = await resolvePlaylist(url);
+          for (final videoUrl in videos) {
             if (seen.add(videoUrl)) {
               resolved.add(videoUrl);
             }
@@ -230,7 +236,7 @@ class DownloadService {
     return resolved;
   }
 
-  bool _isPlaylistUrl(String url) {
+  bool isPlaylistUrl(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;
 
@@ -240,6 +246,19 @@ class DownloadService {
     return isYoutubeHost &&
         (uri.queryParameters.containsKey('list') ||
             uri.path.contains('/playlist'));
+  }
+
+  Future<List<String>> resolvePlaylist(String url) async {
+    final resolved = <String>[];
+    try {
+      final playlist = await _yt.playlists.get(url);
+      await for (final video in _yt.playlists.getVideos(playlist.id)) {
+        resolved.add('https://www.youtube.com/watch?v=${video.id.value}');
+      }
+    } catch (e) {
+      debugPrint('PLAYLIST RESOLVE ERROR: $e');
+    }
+    return resolved;
   }
 
   Future<void> removeJob(String jobId) async {
@@ -261,9 +280,55 @@ class DownloadService {
     _processQueue();
   }
 
+  void moveJob(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    if (oldIndex == newIndex) return;
+
+    final activeJobs = _queue.where((j) => j.localPath == null).toList();
+    if (oldIndex < 0 || oldIndex >= activeJobs.length || newIndex < 0 || newIndex >= activeJobs.length) {
+      return;
+    }
+
+    final targetJob = activeJobs[oldIndex];
+    final referenceJob = activeJobs[newIndex];
+
+    final originalOldIndex = _queue.indexOf(targetJob);
+    final originalNewIndex = _queue.indexOf(referenceJob);
+
+    if (originalOldIndex != -1 && originalNewIndex != -1) {
+      _queue.removeAt(originalOldIndex);
+      _queue.insert(originalNewIndex, targetJob);
+
+      _emitQueue();
+      _persistQueue();
+      _processQueue();
+    }
+  }
+
   Future<void> startDownload(String jobId, {required bool isAudio}) async {
     final jobIndex = _jobIndex(jobId);
     if (jobIndex == -1) return;
+
+    final targetJob = _queue[jobIndex];
+    final targetVideoId = targetJob.videoId;
+    if (targetVideoId != null) {
+      // Check if there is ANOTHER job in the queue/library for the same video ID and same format
+      // that is either actively downloading, queued, or already completed.
+      final duplicateExists = _queue.any((j) =>
+          j.jobId != jobId &&
+          j.videoId == targetVideoId &&
+          j.isAudio == isAudio &&
+          (j.downloadTriggered || j.localPath != null));
+
+      if (duplicateExists) {
+        triggerWarning(
+          "This ${isAudio ? 'audio' : 'video'} format is already in the queue or library.",
+        );
+        return;
+      }
+    }
 
     _queue[jobIndex] = _queue[jobIndex].copyWith(
       isAudio: isAudio,
@@ -289,6 +354,7 @@ class DownloadService {
       status: 'Paused',
     );
     _activeDownloadJobIds.remove(jobId);
+    _updateBackgroundExecutionState();
     _refreshWaitingStatuses();
     _emitQueue();
     await _persistQueue();
@@ -322,6 +388,7 @@ class DownloadService {
       );
     }
     _activeDownloadJobIds.clear();
+    _updateBackgroundExecutionState();
     _emitQueue();
     await _persistQueue();
   }
@@ -410,6 +477,7 @@ class DownloadService {
     }
 
     _activeDownloadJobIds.clear();
+    _updateBackgroundExecutionState();
     _refreshWaitingStatuses();
     _emitQueue();
     await _persistQueue();
@@ -485,6 +553,7 @@ class DownloadService {
       final jobId = _queue[pendingDownloadIndex].jobId;
       final job = _queue[pendingDownloadIndex];
       _activeDownloadJobIds.add(jobId);
+      _updateBackgroundExecutionState();
       _queue[pendingDownloadIndex] = job.copyWith(
         downloading: true,
         status: 'Starting download...',
@@ -493,6 +562,7 @@ class DownloadService {
       unawaited(
         _downloadJob(jobId).whenComplete(() {
           _activeDownloadJobIds.remove(jobId);
+          _updateBackgroundExecutionState();
           _processQueue();
         }),
       );
@@ -631,13 +701,45 @@ class DownloadService {
       final safeTitle = job.title.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
       final localFilePath = '$storagePath/${job.jobId}_$safeTitle.$extension';
       final file = File(localFilePath);
-      final responseStream = _yt.videos.streamsClient.get(streamInfo);
-      final output = file.openWrite(mode: FileMode.write);
 
       final totalBytes = streamInfo.size.totalBytes;
       var downloadedBytes = 0;
+      var isResuming = false;
+
+      if (await file.exists()) {
+        final existingLength = await file.length();
+        if (existingLength > 0 && existingLength < totalBytes) {
+          downloadedBytes = existingLength;
+          isResuming = true;
+        }
+      }
+
+      Stream<List<int>> responseStream;
+      IOSink output;
+
+      if (isResuming) {
+        final client = http.Client();
+        final request = http.Request('GET', streamInfo.url);
+        request.headers['Range'] = 'bytes=$downloadedBytes-';
+        request.headers['User-Agent'] =
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+        final response = await client.send(request);
+        if (response.statusCode == 200 || response.statusCode == 206) {
+          responseStream = response.stream;
+          output = file.openWrite(mode: FileMode.append);
+        } else {
+          responseStream = _yt.videos.streamsClient.get(streamInfo);
+          output = file.openWrite(mode: FileMode.write);
+          downloadedBytes = 0;
+        }
+      } else {
+        responseStream = _yt.videos.streamsClient.get(streamInfo);
+        output = file.openWrite(mode: FileMode.write);
+      }
+
       final speedStopwatch = Stopwatch()..start();
-      var lastDownloadedBytes = 0;
+      var lastDownloadedBytes = downloadedBytes;
       var speedMbps = 0.0;
 
       await for (final data in responseStream) {
@@ -688,6 +790,23 @@ class DownloadService {
               'Downloading: ${(progress * 100).toStringAsFixed(1)}% | ${speedDisplay.toStringAsFixed(2)} MB/s | $eta',
         );
         _emitQueue();
+
+        final now = DateTime.now();
+        if (now.difference(_lastNotificationUpdate).inMilliseconds >= 1500) {
+          _lastNotificationUpdate = now;
+          final activeJobs = _queue.where((j) => j.downloading).toList();
+          if (activeJobs.isNotEmpty) {
+            String notificationText;
+            if (activeJobs.length == 1) {
+              final activeJob = activeJobs.first;
+              notificationText = 'Downloading "${activeJob.title}": ${(activeJob.progress * 100).toStringAsFixed(1)}%';
+            } else {
+              final avgProgress = activeJobs.map((j) => j.progress).reduce((a, b) => a + b) / activeJobs.length;
+              notificationText = 'Downloading ${activeJobs.length} files: ${(avgProgress * 100).toStringAsFixed(1)}%';
+            }
+            unawaited(_updateBackgroundExecutionState(customText: notificationText));
+          }
+        }
       }
 
       await output.close();
@@ -938,5 +1057,36 @@ class DownloadService {
     _batterySub?.cancel();
     _queueController.close();
     _warningController.close();
+  }
+
+  Future<void> _updateBackgroundExecutionState({String? customText}) async {
+    if (!Platform.isAndroid) return;
+
+    final hasActiveDownloads = _activeDownloadJobIds.isNotEmpty;
+    final isBackgroundEnabled = FlutterBackground.isBackgroundExecutionEnabled;
+
+    if (hasActiveDownloads) {
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+      final text = customText ?? "Downloading offline media streams...";
+      final androidConfig = FlutterBackgroundAndroidConfig(
+        notificationTitle: "YT Utils Download Manager",
+        notificationText: text,
+        notificationImportance: AndroidNotificationImportance.normal,
+        notificationIcon: const AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+      );
+
+      if (!isBackgroundEnabled) {
+        final initialized = await FlutterBackground.initialize(androidConfig: androidConfig);
+        if (initialized) {
+          await FlutterBackground.enableBackgroundExecution();
+        }
+      } else {
+        await FlutterBackground.initialize(androidConfig: androidConfig);
+      }
+    } else if (isBackgroundEnabled) {
+      await FlutterBackground.disableBackgroundExecution();
+    }
   }
 }

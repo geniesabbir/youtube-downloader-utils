@@ -22,6 +22,7 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
   final DownloadService _downloadService = DownloadService();
 
   bool _isAudioOnly = false;
+  bool _isResolvingPlaylist = false;
   String _searchQuery = "";
   List<String> _stagedUrls = const [];
   StreamSubscription? _warningSub;
@@ -130,24 +131,53 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _reviewBatch() {
-    final staged = _downloadService.extractSupportedUrls(
-      _urlInputController.text.trim(),
-    );
-    if (staged.isEmpty) {
+  void _reviewBatch() async {
+    final rawText = _urlInputController.text.trim();
+    final stagedRaw = _downloadService.extractSupportedUrls(rawText);
+    if (stagedRaw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Paste at least one valid YouTube URL to build a batch.',
-          ),
+          content: Text('Paste at least one valid YouTube URL to build a batch.'),
         ),
       );
       return;
     }
 
-    setState(() {
-      _stagedUrls = staged;
-    });
+    // Check if any URL is a playlist
+    final hasPlaylist = stagedRaw.any((url) => _downloadService.isPlaylistUrl(url));
+    if (hasPlaylist) {
+      setState(() {
+        _isResolvingPlaylist = true;
+      });
+
+      final resolved = <String>[];
+      try {
+        for (final url in stagedRaw) {
+          if (_downloadService.isPlaylistUrl(url)) {
+            final playlistVideos = await _downloadService.resolvePlaylist(url);
+            resolved.addAll(playlistVideos);
+          } else {
+            resolved.add(url);
+          }
+        }
+      } catch (_) {}
+
+      if (!mounted) return;
+      setState(() {
+        _stagedUrls = resolved.toSet().toList(); // Deduplicate
+        _isResolvingPlaylist = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Playlist resolved! Found ${resolved.length} videos.'),
+        ),
+      );
+    } else {
+      setState(() {
+        _stagedUrls = stagedRaw;
+      });
+    }
     FocusScope.of(context).unfocus();
   }
 
@@ -331,17 +361,28 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        icon: Icon(
-                          _stagedUrls.isEmpty
-                              ? Icons.playlist_add_check_circle_outlined
-                              : Icons.rocket_launch_outlined,
-                        ),
+                        icon: _isResolvingPlaylist
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xff00d2ff)),
+                                ),
+                              )
+                            : Icon(
+                                _stagedUrls.isEmpty
+                                    ? Icons.playlist_add_check_circle_outlined
+                                    : Icons.rocket_launch_outlined,
+                              ),
                         label: Text(
-                          _stagedUrls.isEmpty ? "REVIEW BATCH" : "START BATCH",
+                          _isResolvingPlaylist
+                              ? "RESOLVING PLAYLIST..."
+                              : (_stagedUrls.isEmpty ? "REVIEW BATCH" : "START BATCH"),
                         ),
-                        onPressed: _stagedUrls.isEmpty
-                            ? _reviewBatch
-                            : _startBatch,
+                        onPressed: _isResolvingPlaylist
+                            ? null
+                            : (_stagedUrls.isEmpty ? _reviewBatch : _startBatch),
                       ),
                     ],
                   ),
@@ -555,12 +596,19 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                         ),
                       )
                     else
-                      ListView.builder(
+                      ReorderableListView.builder(
                         itemCount: activeJobs.length,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
+                        onReorder: (oldIndex, newIndex) {
+                          _downloadService.moveJob(oldIndex, newIndex);
+                        },
                         itemBuilder: (context, index) {
-                          return VideoCard(job: activeJobs[index]);
+                          final job = activeJobs[index];
+                          return VideoCard(
+                            key: ValueKey(job.jobId),
+                            job: job,
+                          );
                         },
                       ),
                   ],
