@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/playback_service.dart';
 import '../models/video_job.dart';
 import '../theme/app_theme.dart';
+import 'video_player_view.dart';
 
 class PlayerOverlay extends StatefulWidget {
   const PlayerOverlay({super.key});
@@ -372,12 +373,20 @@ class _PlayerOverlayState extends State<PlayerOverlay> {
                     ),
                   ),
                   IconButton(
-                    icon: Icon(
-                      _isLocked ? Icons.lock : Icons.lock_open,
-                      color: _isLocked ? Colors.amber : Colors.white70,
-                      size: 20,
+                    icon: const Icon(
+                      Icons.open_in_full_rounded,
+                      color: Color(0xff00d2ff),
+                      size: 22,
                     ),
-                    onPressed: _toggleLock,
+                    onPressed: () {
+                      setState(() {
+                        _isExpanded = false;
+                      });
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => VideoPlayerView(job: job)),
+                      );
+                    },
                   ),
                 ],
               ),

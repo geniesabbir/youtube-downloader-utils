@@ -11,6 +11,7 @@ import 'video_card.dart';
 import 'player_overlay.dart';
 import 'continue_watching_row.dart';
 import 'library_view.dart';
+import 'video_player_view.dart';
 
 class Dashboard extends StatefulWidget {
   const Dashboard({super.key});
@@ -551,7 +552,10 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                           size: 16,
                         ),
                         onTap: () {
-                          PlaybackService().play(job);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => VideoPlayerView(job: job)),
+                          );
                         },
                       );
                     },

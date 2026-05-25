@@ -73,27 +73,37 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     _loadJobWorkspaceData();
 
     if (!widget.job.isAudio) {
-      // 1. Video Playback Initialization
-      _playback.stop(); // Stop background audio if playing video
-      _controller = VideoPlayerController.file(File(widget.job.localPath!))
-        ..initialize().then((_) {
-          setState(() {
-            _initialized = true;
-          });
-          if (widget.job.lastPositionSeconds > 0) {
-            _controller.seekTo(Duration(seconds: widget.job.lastPositionSeconds));
+      if (_playback.activeJob?.jobId != widget.job.jobId) {
+        _playback.play(widget.job).then((_) {
+          if (mounted) {
+            _initializeController();
           }
-          _controller.play();
-          _startProgressSaving();
-          _resetControlsTimer();
         });
-
-      _controller.addListener(() {
-        if (mounted) setState(() {});
-      });
+      } else {
+        _initializeController();
+      }
     } else {
-      // 2. Audio Playback Initialization
-      _playback.play(widget.job);
+      if (_playback.activeJob?.jobId != widget.job.jobId) {
+        _playback.play(widget.job);
+      }
+    }
+  }
+
+  void _initializeController() {
+    if (_playback.videoController != null) {
+      _controller = _playback.videoController!;
+      _controller.addListener(_onControllerUpdate);
+      setState(() {
+        _initialized = true;
+      });
+      _startProgressSaving();
+      _resetControlsTimer();
+    }
+  }
+
+  void _onControllerUpdate() {
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -385,7 +395,9 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     
     if (!widget.job.isAudio) {
       _saveProgress();
-      _controller.dispose();
+      if (_initialized) {
+        _controller.removeListener(_onControllerUpdate);
+      }
     }
     
     _tabController.dispose();
