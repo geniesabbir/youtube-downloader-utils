@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../services/playback_service.dart';
 import '../models/video_job.dart';
 import '../theme/app_theme.dart';
@@ -196,20 +197,29 @@ class _PlayerOverlayState extends State<PlayerOverlay> {
                     child: SizedBox(
                       width: 42,
                       height: 42,
-                      child: job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty
-                          ? Image.network(
-                              job.thumbnailUrl!,
+                      child: (!job.isAudio && _playback.videoController != null && _playback.videoController!.value.isInitialized)
+                          ? FittedBox(
                               fit: BoxFit.cover,
-                              cacheWidth: 320, // Binds decoded image RAM size limit
-                              errorBuilder: (c, e, s) => Container(
-                                color: Colors.white10,
-                                child: const Icon(Icons.music_note_rounded, color: AppColors.mint, size: 20),
+                              child: SizedBox(
+                                width: _playback.videoController!.value.size.width,
+                                height: _playback.videoController!.value.size.height,
+                                child: VideoPlayer(_playback.videoController!),
                               ),
                             )
-                          : Container(
-                              color: Colors.white10,
-                              child: const Icon(Icons.music_note_rounded, color: AppColors.mint, size: 20),
-                            ),
+                          : (job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty
+                              ? Image.network(
+                                  job.thumbnailUrl!,
+                                  fit: BoxFit.cover,
+                                  cacheWidth: 320,
+                                  errorBuilder: (c, e, s) => Container(
+                                    color: Colors.white10,
+                                    child: const Icon(Icons.music_note_rounded, color: AppColors.mint, size: 20),
+                                  ),
+                                )
+                              : Container(
+                                  color: Colors.white10,
+                                  child: const Icon(Icons.music_note_rounded, color: AppColors.mint, size: 20),
+                                )),
                     ),
                   ),
                   // scrolling Title and Author
@@ -398,13 +408,15 @@ class _PlayerOverlayState extends State<PlayerOverlay> {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final size = (constraints.maxHeight * 0.9).clamp(90.0, 140.0);
+                      final double width = job.isAudio ? size : (size * 16 / 9).clamp(160.0, constraints.maxWidth - 32);
+                      final double height = job.isAudio ? size : width * 9 / 16;
                       return Stack(
                         alignment: Alignment.center,
                         children: [
                           // Thumbnail itself
                           Container(
-                            width: size,
-                            height: size,
+                            width: width,
+                            height: height,
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
@@ -417,20 +429,29 @@ class _PlayerOverlayState extends State<PlayerOverlay> {
                             ),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(16),
-                              child: job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty
-                                  ? Image.network(
-                                      job.thumbnailUrl!,
+                              child: (!job.isAudio && _playback.videoController != null && _playback.videoController!.value.isInitialized)
+                                  ? FittedBox(
                                       fit: BoxFit.cover,
-                                      cacheWidth: 320, // Binds decoded image RAM size limit
-                                      errorBuilder: (c, e, s) => Container(
-                                        color: Colors.white10,
-                                        child: const Icon(Icons.music_note, color: AppColors.mint, size: 40),
+                                      child: SizedBox(
+                                        width: _playback.videoController!.value.size.width,
+                                        height: _playback.videoController!.value.size.height,
+                                        child: VideoPlayer(_playback.videoController!),
                                       ),
                                     )
-                                  : Container(
-                                      color: Colors.white10,
-                                      child: const Icon(Icons.music_note, color: AppColors.mint, size: 40),
-                                    ),
+                                  : (job.thumbnailUrl != null && job.thumbnailUrl!.isNotEmpty
+                                      ? Image.network(
+                                          job.thumbnailUrl!,
+                                          fit: BoxFit.cover,
+                                          cacheWidth: 320,
+                                          errorBuilder: (c, e, s) => Container(
+                                            color: Colors.white10,
+                                            child: const Icon(Icons.music_note, color: AppColors.mint, size: 40),
+                                          ),
+                                        )
+                                      : Container(
+                                          color: Colors.white10,
+                                          child: const Icon(Icons.music_note, color: AppColors.mint, size: 40),
+                                        )),
                             ),
                           ),
 
