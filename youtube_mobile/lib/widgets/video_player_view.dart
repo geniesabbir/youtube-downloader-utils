@@ -13,7 +13,7 @@ import '../models/study_card.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
 import '../services/transcript_service.dart';
-import '../services/ai_service.dart';
+
 import '../services/clip_service.dart';
 import '../theme/app_theme.dart';
 import '../core/events/event_bus.dart';
@@ -39,7 +39,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   // Workspace Study States
   final PlaybackService _playback = PlaybackService();
   final TranscriptService _transcriptService = TranscriptService();
-  final AiService _aiService = AiService();
+
 
   List<TranscriptSegment> _segments = [];
   List<MediaNote> _notes = [];
@@ -51,10 +51,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   final TextEditingController _summaryController = TextEditingController();
   bool _editingSummary = false;
 
-  // Search State
-  String _searchQuery = "";
-  List<TranscriptSegment> _searchResults = [];
-  final TextEditingController _searchController = TextEditingController();
+
 
   // Note Input State
   final TextEditingController _noteInputController = TextEditingController();
@@ -162,7 +159,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     setState(() {
       _loadingTranscript = true;
       _segments = [];
-      _searchResults = [];
       _notes = [];
       _studyCards = [];
       _personalSummary = "";
@@ -341,12 +337,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     await prefs.setString('library_notes_${_currentJob.jobId}', raw);
   }
 
-  void _triggerSearch(String query) {
-    setState(() {
-      _searchQuery = query;
-      _searchResults = _aiService.semanticSearch(query, _segments);
-    });
-  }
+
 
   void _addNewNoteAtCurrentTime() {
     final text = _noteInputController.text.trim();
@@ -402,7 +393,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     }
     
     _tabController.dispose();
-    _searchController.dispose();
     _noteInputController.dispose();
     super.dispose();
   }
@@ -864,7 +854,44 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
                           );
                           Navigator.pop(context);
                           
-                          if (path != null) {
+                           if (path != null) {
+                            final durationDiff = endTime - startTime;
+                            String formatDuration(Duration duration) {
+                              String twoDigits(int n) => n.toString().padLeft(2, "0");
+                              String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+                              String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+                              if (duration.inHours > 0) {
+                                return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+                              }
+                              return "$twoDigitMinutes:$twoDigitSeconds";
+                            }
+                            final startStr = formatDuration(startTime);
+                            final endStr = formatDuration(endTime);
+                            
+                            int? bytes;
+                            try {
+                              bytes = File(path).lengthSync();
+                            } catch (_) {}
+
+                            final clipJob = VideoJob(
+                              jobId: 'clip_${DateTime.now().millisecondsSinceEpoch}',
+                              title: '[CLIP] ${_currentJob.title} ($startStr to $endStr)',
+                              sourceUrl: _currentJob.sourceUrl,
+                              targetUrl: _currentJob.targetUrl,
+                              duration: formatDuration(durationDiff),
+                              isAudio: audioOnly,
+                              status: 'Completed',
+                              progress: 1.0,
+                              discovered: true,
+                              localPath: path,
+                              watchedPercent: 0.0,
+                              thumbnailUrl: _currentJob.thumbnailUrl,
+                              author: _currentJob.author,
+                              fileSizeBytes: bytes,
+                              tags: ['clip'],
+                            );
+                            await DownloadService().addCompletedJob(clipJob);
+
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text("Clip extracted successfully to: ...${path.substring(path.length > 30 ? path.length - 30 : 0)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
@@ -1292,54 +1319,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     return '$hours:$minutes:$seconds,$milliseconds';
   }
 
-  Widget _buildSearchTab() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-          decoration: BoxDecoration(
-            color: const Color(0xff121820),
-            borderRadius: BorderRadius.circular(12.0),
-            border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-          ),
-          child: TextField(
-            controller: _searchController,
-            style: const TextStyle(color: Colors.white, fontSize: 13.0),
-            onChanged: _triggerSearch,
-            decoration: InputDecoration(
-              icon: const Icon(Icons.search, color: AppColors.mint, size: 18),
-              hintText: "Search keyword in this transcript...",
-              hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12.5),
-              border: InputBorder.none,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: _searchQuery.isEmpty
-              ? Center(child: Text("Type a word above to search transcript timestamps.", style: TextStyle(color: Colors.white.withOpacity(0.25), fontSize: 12.0)))
-              : _searchResults.isEmpty
-                  ? const Center(child: Text("No matches found in transcript.", style: TextStyle(color: Colors.white24)))
-                  : ListView.builder(
-                      itemCount: _searchResults.length,
-                      itemBuilder: (context, index) {
-                        final match = _searchResults[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          leading: ActionChip(
-                            label: Text(_formatDuration(match.start), style: const TextStyle(fontFamily: "monospace", fontSize: 10, fontWeight: FontWeight.bold)),
-                            backgroundColor: AppColors.cyan.withOpacity(0.12),
-                            onPressed: () => _jumpToTimestamp(match.start),
-                          ),
-                          title: Text(match.text, style: const TextStyle(color: Colors.white, fontSize: 12.5)),
-                        );
-                      },
-                    ),
-        ),
-      ],
-    );
-  }
+
 
   Widget _buildNotesTab() {
     final currentTimeStr = _currentJob.isAudio 

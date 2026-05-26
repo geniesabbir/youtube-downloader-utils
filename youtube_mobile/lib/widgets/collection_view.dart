@@ -206,6 +206,8 @@ class CollectionView extends StatelessWidget {
         return Icons.radio_button_unchecked_rounded;
       case 'play_circle_outline':
         return Icons.play_circle_fill_rounded;
+      case 'content_cut':
+        return Icons.content_cut_rounded;
       case 'music_note':
         return Icons.music_note_rounded;
       case 'video_library':

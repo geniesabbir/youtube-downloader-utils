@@ -214,6 +214,12 @@ class DownloadService {
     return added;
   }
 
+  Future<void> addCompletedJob(VideoJob job) async {
+    _queue.add(job);
+    _emitQueue();
+    await _persistQueue();
+  }
+
   Future<void> analyzeUrls(String batchText, {bool isAudio = false}) async {
     final urls = extractSupportedUrls(batchText);
     await addJobs(urls, isAudio: isAudio);

@@ -25,6 +25,19 @@ class LibraryService {
     if (_collections.isEmpty) {
       _createDefaultSmartCollections();
       await _persistCollections(prefs);
+    } else {
+      final hasClips = _collections.any((c) => c.id == 'clips');
+      if (!hasClips) {
+        _collections.add(MediaCollection(
+          id: 'clips',
+          name: 'Clips',
+          iconName: 'content_cut',
+          colorHex: 0xffe9a15f,
+          isSmart: true,
+          rules: [CollectionRule(field: 'tags', operator: 'contains', value: 'clip')],
+        ));
+        await _persistCollections(prefs);
+      }
     }
     _collectionsController.add(_collections);
   }
@@ -73,6 +86,14 @@ class LibraryService {
           CollectionRule(field: 'watchedPercent', operator: 'gt', value: 0.0),
           CollectionRule(field: 'watchedPercent', operator: 'lt', value: 1.0),
         ],
+      ),
+      MediaCollection(
+        id: 'clips',
+        name: 'Clips',
+        iconName: 'content_cut',
+        colorHex: 0xffe9a15f,
+        isSmart: true,
+        rules: [CollectionRule(field: 'tags', operator: 'contains', value: 'clip')],
       ),
       MediaCollection(
         id: 'audio_only',
