@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
@@ -15,6 +14,7 @@ import '../services/clip_service.dart';
 import '../theme/app_theme.dart';
 import '../core/events/event_bus.dart';
 import 'brand_mark.dart';
+import 'unified_player.dart';
 
 class VideoPlayerView extends StatefulWidget {
   final VideoJob job;
@@ -25,22 +25,14 @@ class VideoPlayerView extends StatefulWidget {
 }
 
 class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderStateMixin {
+  late VideoJob _currentJob;
+  StreamSubscription<PlaybackState>? _playbackStateSubscription;
   late VideoPlayerController _controller;
   bool _initialized = false;
-  bool _controlsVisible = true;
-  
-  // Phase 2 - Advanced Player Enhancements
-  bool _isLocked = false;
-  bool _showLockIndicatorActive = false;
-  bool _showLeftSeekIndicator = false;
-  bool _showRightSeekIndicator = false;
   
   Timer? _progressTimer;
-  Timer? _lockIndicatorTimer;
-  Timer? _fadeControlsTimer;
 
   // Workspace Study States
-  final DownloadService _download = DownloadService();
   final PlaybackService _playback = PlaybackService();
   final TranscriptService _transcriptService = TranscriptService();
   final AiService _aiService = AiService();
@@ -67,14 +59,15 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   @override
   void initState() {
     super.initState();
+    _currentJob = widget.job;
     _tabController = TabController(length: 4, vsync: this);
     
     // Initialize Workspace Data
     _loadJobWorkspaceData();
 
-    if (!widget.job.isAudio) {
-      if (_playback.activeJob?.jobId != widget.job.jobId) {
-        _playback.play(widget.job).then((_) {
+    if (!_currentJob.isAudio) {
+      if (_playback.activeJob?.jobId != _currentJob.jobId) {
+        _playback.play(_currentJob).then((_) {
           if (mounted) {
             _initializeController();
           }
@@ -83,13 +76,40 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
         _initializeController();
       }
     } else {
-      if (_playback.activeJob?.jobId != widget.job.jobId) {
-        _playback.play(widget.job);
+      if (_playback.activeJob?.jobId != _currentJob.jobId) {
+        _playback.play(_currentJob);
       }
     }
+
+    _playbackStateSubscription = _playback.stateStream.listen((state) {
+      if (!mounted) return;
+      
+      final active = _playback.activeJob;
+      if (active == null) {
+        Navigator.of(context).pop();
+        return;
+      }
+      
+      if (active.jobId != _currentJob.jobId) {
+        setState(() {
+          _currentJob = active;
+          _initialized = false;
+        });
+        _loadJobWorkspaceData();
+        if (!_currentJob.isAudio) {
+          _initializeController();
+        }
+      }
+    });
   }
 
   void _initializeController() {
+    if (_initialized) {
+      try {
+        _controller.removeListener(_onControllerUpdate);
+      } catch (_) {}
+      _initialized = false;
+    }
     if (_playback.videoController != null) {
       _controller = _playback.videoController!;
       _controller.addListener(_onControllerUpdate);
@@ -97,7 +117,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
         _initialized = true;
       });
       _startProgressSaving();
-      _resetControlsTimer();
     }
   }
 
@@ -114,7 +133,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   }
 
   void _saveProgress() {
-    if (widget.job.isAudio) return;
+    if (_currentJob.isAudio) return;
     if (!_initialized) return;
     
     final pos = _controller.value.position;
@@ -123,7 +142,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
       final watchedPercent = (pos.inSeconds / dur.inSeconds).clamp(0.0, 1.0);
       EventBus().fire(
         PlaybackProgressEvent(
-          jobId: widget.job.jobId,
+          jobId: _currentJob.jobId,
           position: pos,
           duration: dur,
           watchedPercent: watchedPercent,
@@ -132,144 +151,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     }
   }
 
-  void _resetControlsTimer() {
-    _fadeControlsTimer?.cancel();
-    if (_controlsVisible && !_isLocked) {
-      _fadeControlsTimer = Timer(const Duration(seconds: 4), () {
-        if (mounted) {
-          setState(() {
-            _controlsVisible = false;
-          });
-        }
-      });
-    }
-  }
-
-  void _seekRelative(Duration offset) {
-    if (widget.job.isAudio) {
-      final target = _playback.position + offset;
-      _playback.seek(target);
-      return;
-    }
-
-    if (_isLocked || !_initialized) return;
-    final target = _controller.value.position + offset;
-    final maxDuration = _controller.value.duration;
-    Duration clamped = target;
-    if (clamped < Duration.zero) {
-      clamped = Duration.zero;
-    } else if (clamped > maxDuration) {
-      clamped = maxDuration;
-    }
-    _controller.seekTo(clamped);
-    _saveProgress();
-    _resetControlsTimer();
-
-    setState(() {
-      if (offset.inSeconds < 0) {
-        _showLeftSeekIndicator = true;
-      } else {
-        _showRightSeekIndicator = true;
-      }
-    });
-
-    Timer(const Duration(milliseconds: 650), () {
-      if (mounted) {
-        setState(() {
-          if (offset.inSeconds < 0) {
-            _showLeftSeekIndicator = false;
-          } else {
-            _showRightSeekIndicator = false;
-          }
-        });
-      }
-    });
-  }
-
-  void _toggleLock() {
-    setState(() {
-      _isLocked = !_isLocked;
-      if (_isLocked) {
-        _controlsVisible = false;
-      } else {
-        _controlsVisible = true;
-      }
-    });
-    _showLockIndicator();
-    _resetControlsTimer();
-  }
-
-  void _showLockIndicator() {
-    setState(() {
-      _showLockIndicatorActive = true;
-    });
-    _lockIndicatorTimer?.cancel();
-    _lockIndicatorTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted) {
-        setState(() {
-          _showLockIndicatorActive = false;
-        });
-      }
-    });
-  }
-
-  void _showSpeedSelector(BuildContext context) {
-    _resetControlsTimer();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xff121820),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                "SELECT PLAYBACK SPEED",
-                style: TextStyle(
-                  color: Color(0xff00d2ff),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14.0,
-                  letterSpacing: 1.0,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 8,
-                children: [0.5, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0].map((speedVal) {
-                  final active = widget.job.isAudio 
-                      ? _playback.speed == speedVal
-                      : _controller.value.playbackSpeed == speedVal;
-                  return ChoiceChip(
-                    label: Text("${speedVal}x"),
-                    selected: active,
-                    selectedColor: const Color(0xff00ff88),
-                    labelStyle: TextStyle(color: active ? Colors.black : Colors.white, fontWeight: FontWeight.bold),
-                    backgroundColor: const Color(0xff0a0d14),
-                    onSelected: (selected) {
-                      if (selected) {
-                        if (widget.job.isAudio) {
-                          _playback.setSpeed(speedVal);
-                        } else {
-                          _controller.setPlaybackSpeed(speedVal);
-                        }
-                        Navigator.pop(context);
-                      }
-                    },
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   // ── Study Workspace Logic ──────────────────────────────────────────────────
   void _loadJobWorkspaceData() async {
@@ -282,8 +163,8 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
       _notes = [];
     });
 
-    final segs = await _transcriptService.getTranscript(widget.job);
-    final loadedNotes = await _loadPersistedNotes(widget.job.jobId);
+    final segs = await _transcriptService.getTranscript(_currentJob);
+    final loadedNotes = await _loadPersistedNotes(_currentJob.jobId);
 
     if (mounted) {
       setState(() {
@@ -321,7 +202,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     });
     final prefs = await SharedPreferences.getInstance();
     final raw = jsonEncode(_notes.map((e) => e.toJson()).toList());
-    await prefs.setString('library_notes_${widget.job.jobId}', raw);
+    await prefs.setString('library_notes_${_currentJob.jobId}', raw);
   }
 
   void _generateAISummary() async {
@@ -329,7 +210,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
       _generatingSummary = true;
     });
 
-    final summary = await _aiService.summarize(_segments, widget.job.title);
+    final summary = await _aiService.summarize(_segments, _currentJob.title);
     final keyPointsList = await _aiService.extractKeyPoints(_segments);
 
     if (mounted) {
@@ -352,13 +233,13 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     final text = _noteInputController.text.trim();
     if (text.isEmpty) return;
 
-    final currentPos = widget.job.isAudio 
+    final currentPos = _currentJob.isAudio 
         ? _playback.position 
         : (_initialized ? _controller.value.position : Duration.zero);
 
     final newNote = MediaNote(
       noteId: DateTime.now().millisecondsSinceEpoch.toString(),
-      jobId: widget.job.jobId,
+      jobId: _currentJob.jobId,
       timestamp: currentPos,
       content: text,
       createdAt: DateTime.now(),
@@ -370,7 +251,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   }
 
   void _jumpToTimestamp(Duration timestamp) {
-    if (!widget.job.isAudio && _initialized) {
+    if (!_currentJob.isAudio && _initialized) {
       _controller.seekTo(timestamp);
       _saveProgress();
     } else {
@@ -390,13 +271,14 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   @override
   void dispose() {
     _progressTimer?.cancel();
-    _lockIndicatorTimer?.cancel();
-    _fadeControlsTimer?.cancel();
+    _playbackStateSubscription?.cancel();
     
-    if (!widget.job.isAudio) {
+    if (!_currentJob.isAudio) {
       _saveProgress();
       if (_initialized) {
-        _controller.removeListener(_onControllerUpdate);
+        try {
+          _controller.removeListener(_onControllerUpdate);
+        } catch (_) {}
       }
     }
     
@@ -410,12 +292,12 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   Widget build(BuildContext context) {
     return BrandBackdrop(
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         appBar: AppBar(
           backgroundColor: Colors.transparent,
           iconTheme: const IconThemeData(color: Colors.white70),
           title: Text(
-            widget.job.isAudio ? "OFFLINE STUDY AUDIO" : "OFFLINE STUDY LECTURE",
+            _currentJob.isAudio ? "OFFLINE STUDY AUDIO" : "OFFLINE STUDY LECTURE",
             style: const TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2),
           ),
           centerTitle: true,
@@ -445,283 +327,20 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   }
 
   Widget _buildPlayerBlock() {
-    if (widget.job.isAudio) {
-      return StreamBuilder<PlaybackState>(
-        stream: _playback.stateStream,
-        builder: (context, snapshot) {
-          final isPlaying = _playback.state == PlaybackState.playing;
-          return AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Container(
-              color: const Color(0xff090c12),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  // Spinning CD
-                  _buildSpinningAudioCdDeck(isPlaying),
-                  Positioned(
-                    bottom: 12,
-                    left: 16,
-                    right: 16,
-                    child: _buildAudioScrubbers(isPlaying),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+    if (_currentJob.isAudio) {
+      return SizedBox(
+        height: 350.0,
+        child: UnifiedPlayer(
+          job: _currentJob,
+          variant: PlayerVariant.full,
+        ),
       );
     }
-
     return AspectRatio(
       aspectRatio: 16 / 9,
-      child: Container(
-        color: Colors.black,
-        child: _initialized
-            ? Stack(
-                alignment: Alignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (_isLocked) {
-                        _showLockIndicator();
-                      } else {
-                        setState(() {
-                          _controlsVisible = !_controlsVisible;
-                        });
-                        _resetControlsTimer();
-                      }
-                    },
-                    child: AspectRatio(
-                      aspectRatio: _controller.value.aspectRatio,
-                      child: VideoPlayer(_controller),
-                    ),
-                  ),
-                  
-                  // Gestures seeks zones
-                  Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final width = constraints.maxWidth;
-                        return Stack(
-                          children: [
-                            Positioned(
-                              left: 0,
-                              top: 0,
-                              bottom: 0,
-                              width: width * 0.3,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onDoubleTap: () => _seekRelative(const Duration(seconds: -10)),
-                              ),
-                            ),
-                            Positioned(
-                              right: 0,
-                              top: 0,
-                              bottom: 0,
-                              width: width * 0.3,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onDoubleTap: () => _seekRelative(const Duration(seconds: 10)),
-                              ),
-                            ),
-                            Positioned(
-                              left: width * 0.3,
-                              right: width * 0.3,
-                              top: 0,
-                              bottom: 0,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.translucent,
-                                onDoubleTap: _toggleLock,
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Overlays and controls
-                  if (_showLeftSeekIndicator)
-                    const Positioned(
-                      left: 48,
-                      child: CircleAvatar(
-                        backgroundColor: Colors.black54,
-                        child: Icon(Icons.fast_rewind, color: AppColors.cyan),
-                      ),
-                    ),
-                  if (_showRightSeekIndicator)
-                    const Positioned(
-                      right: 48,
-                      child: CircleAvatar(
-                        backgroundColor: Colors.black54,
-                        child: Icon(Icons.fast_forward, color: AppColors.cyan),
-                      ),
-                    ),
-
-                  if (_controlsVisible && !_isLocked) _buildVideoControlsOverlay(),
-                  
-                  if (_isLocked && _showLockIndicatorActive)
-                    IconButton(
-                      icon: const Icon(Icons.lock, color: Colors.amber, size: 40),
-                      onPressed: _toggleLock,
-                    ),
-                ],
-              )
-            : const Center(child: CircularProgressIndicator(color: AppColors.cyan)),
-      ),
-    );
-  }
-
-  Widget _buildSpinningAudioCdDeck(bool isPlaying) {
-    return Container(
-      width: 90,
-      height: 90,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xff06080c),
-        border: Border.all(color: isPlaying ? AppColors.mint : AppColors.stroke, width: 3),
-        boxShadow: [
-          if (isPlaying)
-            BoxShadow(
-              color: AppColors.mint.withOpacity(0.3),
-              blurRadius: 12,
-              spreadRadius: 2,
-            ),
-        ],
-      ),
-      child: Center(
-        child: Container(
-          width: 32,
-          height: 32,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            color: Color(0xff0b0f17),
-          ),
-          child: Center(
-            child: Icon(
-              Icons.music_note,
-              color: isPlaying ? AppColors.mint : Colors.white24,
-              size: 16,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAudioScrubbers(bool isPlaying) {
-    return StreamBuilder<Duration>(
-      stream: _playback.positionStream,
-      builder: (context, snapshot) {
-        final pos = _playback.position;
-        final dur = _playback.duration;
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(_formatDuration(pos), style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: "monospace")),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.replay_10, color: AppColors.mint, size: 20),
-                  onPressed: () => _playback.seek(pos - const Duration(seconds: 10)),
-                ),
-                IconButton(
-                  icon: Icon(isPlaying ? Icons.pause_circle : Icons.play_circle, color: AppColors.mint, size: 28),
-                  onPressed: () => isPlaying ? _playback.pause() : _playback.resume(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.forward_10, color: AppColors.mint, size: 20),
-                  onPressed: () => _playback.seek(pos + const Duration(seconds: 10)),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.speed, color: AppColors.mint, size: 18),
-                  onPressed: () => _showSpeedSelector(context),
-                ),
-              ],
-            ),
-            Text(_formatDuration(dur), style: const TextStyle(color: Colors.white54, fontSize: 10, fontFamily: "monospace")),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildVideoControlsOverlay() {
-    final duration = _controller.value.duration;
-    final position = _controller.value.position;
-    final isPlaying = _controller.value.isPlaying;
-
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black38,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                IconButton(
-                  icon: Icon(_isLocked ? Icons.lock : Icons.lock_open, color: Colors.white70, size: 20),
-                  onPressed: _toggleLock,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.speed, color: Colors.white70, size: 20),
-                  onPressed: () => _showSpeedSelector(context),
-                ),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.replay_10, color: Colors.white, size: 28),
-                  onPressed: () => _seekRelative(const Duration(seconds: -10)),
-                ),
-                const SizedBox(width: 24),
-                IconButton(
-                  icon: Icon(isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled, color: Colors.white, size: 48),
-                  onPressed: () {
-                    setState(() {
-                      isPlaying ? _controller.pause() : _controller.play();
-                    });
-                    _resetControlsTimer();
-                  },
-                ),
-                const SizedBox(width: 24),
-                IconButton(
-                  icon: const Icon(Icons.forward_10, color: Colors.white, size: 28),
-                  onPressed: () => _seekRelative(const Duration(seconds: 10)),
-                ),
-              ],
-            ),
-            Column(
-              children: [
-                VideoProgressIndicator(
-                  _controller,
-                  allowScrubbing: true,
-                  colors: const VideoProgressColors(
-                    playedColor: AppColors.cyan,
-                    bufferedColor: Colors.white24,
-                    backgroundColor: Colors.white10,
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "${_formatDuration(position)} / ${_formatDuration(duration)}",
-                      style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: "monospace"),
-                    ),
-                    const Icon(Icons.fullscreen, color: Colors.white70, size: 20),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
+      child: UnifiedPlayer(
+        job: _currentJob,
+        variant: PlayerVariant.full,
       ),
     );
   }
@@ -735,7 +354,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
         children: [
           // Title
           Text(
-            widget.job.title,
+            _currentJob.title,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 16.5,
@@ -749,7 +368,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
           Row(
             children: [
               Text(
-                "Offline study • ${widget.job.fileSizeDisplay} • ",
+                "Offline study • ${_currentJob.fileSizeDisplay} • ",
                 style: const TextStyle(color: Colors.blueGrey, fontSize: 11.5),
               ),
               const Icon(Icons.offline_pin_rounded, color: AppColors.mint, size: 12),
@@ -771,12 +390,12 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
                 // 1. Star / Favorite Button
                 StatefulBuilder(
                   builder: (context, setFavState) {
-                    final isFav = widget.job.isFavorited;
+                    final isFav = _currentJob.isFavorited;
                     return InkWell(
                       onTap: () async {
-                        widget.job.isFavorited = !widget.job.isFavorited;
+                        _currentJob.isFavorited = !_currentJob.isFavorited;
                         final downloadService = DownloadService();
-                        await downloadService.updateJobStateDirectly(widget.job.jobId, widget.job);
+                        await downloadService.updateJobStateDirectly(_currentJob.jobId, _currentJob);
                         setFavState(() {});
                       },
                       borderRadius: BorderRadius.circular(18),
@@ -961,13 +580,12 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
 
 
   void _showClipExtractorBottomSheet() {
-    _resetControlsTimer();
-    final currentPos = widget.job.isAudio 
+    final currentPos = _currentJob.isAudio 
         ? _playback.position 
         : (_initialized ? _controller.value.position : Duration.zero);
     
     // Default duration to 30 seconds
-    final maxDur = widget.job.isAudio
+    final maxDur = _currentJob.isAudio
         ? const Duration(minutes: 60) // Simple limit for audio
         : (_initialized ? _controller.value.duration : const Duration(minutes: 60));
     
@@ -977,7 +595,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
       endTime = maxDur;
     }
     
-    bool audioOnly = widget.job.isAudio;
+    bool audioOnly = _currentJob.isAudio;
     bool extracting = false;
 
     showModalBottomSheet(
@@ -1089,7 +707,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
                       ),
                     ),
                     
-                    if (!widget.job.isAudio) ...[
+                    if (!_currentJob.isAudio) ...[
                       const SizedBox(height: 10),
                       Row(
                         children: [
@@ -1123,7 +741,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
                           });
                           final clipService = ClipService();
                           final path = await clipService.extractClip(
-                            job: widget.job,
+                            job: _currentJob,
                             startTime: startTime,
                             endTime: endTime,
                             audioOnly: audioOnly,
@@ -1281,7 +899,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   }
 
   Widget _buildNotesTab() {
-    final currentTimeStr = widget.job.isAudio 
+    final currentTimeStr = _currentJob.isAudio 
         ? _formatDuration(_playback.position)
         : (_initialized ? _formatDuration(_controller.value.position) : "00:00");
 

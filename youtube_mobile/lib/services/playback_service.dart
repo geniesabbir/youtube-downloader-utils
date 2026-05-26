@@ -5,8 +5,10 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:video_player/video_player.dart';
 import '../models/video_job.dart';
 import '../core/events/event_bus.dart';
+import 'download_service.dart';
 
 enum PlaybackState { idle, loading, playing, paused, completed }
+enum LoopModeState { off, one, all }
 
 class PlaybackService {
   static final PlaybackService _instance = PlaybackService._internal();
@@ -18,6 +20,7 @@ class PlaybackService {
   VideoPlayerController? get videoController => _videoController;
   VideoJob? _activeJob;
   PlaybackState _state = PlaybackState.idle;
+  LoopModeState _loopMode = LoopModeState.off;
   Timer? _sleepTimer;
   Duration? _sleepTimerDuration;
   DateTime _lastPositionSave = DateTime.fromMillisecondsSinceEpoch(0);
@@ -27,15 +30,18 @@ class PlaybackService {
   final StreamController<Duration> _bufferedController = StreamController<Duration>.broadcast();
   final StreamController<Duration> _durationController = StreamController<Duration>.broadcast();
   final StreamController<int?> _sleepTimerController = StreamController<int?>.broadcast();
+  final StreamController<LoopModeState> _loopModeController = StreamController<LoopModeState>.broadcast();
 
   Stream<PlaybackState> get stateStream => _stateController.stream;
   Stream<Duration> get positionStream => _positionController.stream;
   Stream<Duration> get bufferedStream => _bufferedController.stream;
   Stream<Duration> get durationStream => _durationController.stream;
   Stream<int?> get sleepTimerStream => _sleepTimerController.stream;
+  Stream<LoopModeState> get loopModeStream => _loopModeController.stream;
 
   VideoJob? get activeJob => _activeJob;
   PlaybackState get state => _state;
+  LoopModeState get loopMode => _loopMode;
   
   Duration get position {
     if (_activeJob?.isAudio ?? true) {
@@ -73,6 +79,9 @@ class PlaybackService {
         _state = PlaybackState.loading;
       } else if (playerState.processingState == ProcessingState.completed) {
         _state = PlaybackState.completed;
+        _stateController.add(_state);
+        _handlePlaybackCompletion();
+        return;
       } else {
         _state = playerState.playing ? PlaybackState.playing : PlaybackState.paused;
       }
@@ -115,6 +124,12 @@ class PlaybackService {
       newState = PlaybackState.loading;
     } else if (value.isCompleted) {
       newState = PlaybackState.completed;
+      if (_state != PlaybackState.completed) {
+        _state = newState;
+        _stateController.add(_state);
+        _handlePlaybackCompletion();
+        return;
+      }
     } else {
       newState = value.isPlaying ? PlaybackState.playing : PlaybackState.paused;
     }
@@ -135,6 +150,44 @@ class PlaybackService {
         _lastPositionSave = now;
         _saveProgress();
       }
+    }
+  }
+
+  void _handlePlaybackCompletion() {
+    if (_loopMode == LoopModeState.one) {
+      return;
+    }
+    
+    final queue = DownloadService().queue;
+    final libraryJobs = queue.where((j) => j.localPath != null).toList();
+    if (libraryJobs.isEmpty) return;
+    
+    final currentIdx = libraryJobs.indexWhere((j) => j.jobId == _activeJob?.jobId);
+    if (currentIdx != -1) {
+      if (currentIdx + 1 < libraryJobs.length) {
+        play(libraryJobs[currentIdx + 1]);
+      } else if (_loopMode == LoopModeState.all) {
+        play(libraryJobs[0]);
+      } else {
+        stop();
+      }
+    }
+  }
+
+  void toggleLoopMode() {
+    if (_loopMode == LoopModeState.off) {
+      _loopMode = LoopModeState.one;
+    } else if (_loopMode == LoopModeState.one) {
+      _loopMode = LoopModeState.all;
+    } else {
+      _loopMode = LoopModeState.off;
+    }
+    _loopModeController.add(_loopMode);
+    
+    if (_activeJob?.isAudio ?? true) {
+      _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
+    } else {
+      _videoController?.setLooping(_loopMode == LoopModeState.one);
     }
   }
 
@@ -160,8 +213,20 @@ class PlaybackService {
   Future<void> play(VideoJob job) async {
     if (job.localPath == null) return;
     
-    // Stop any current video or audio
-    await stop();
+    _state = PlaybackState.loading;
+    _stateController.add(_state);
+    
+    _saveProgress();
+    
+    await _audioPlayer.stop();
+    
+    if (_videoController != null) {
+      _videoController!.removeListener(_videoListener);
+      await _videoController!.pause();
+      await _videoController!.dispose();
+      _videoController = null;
+    }
+    cancelSleepTimer();
     
     _activeJob = job;
 
@@ -179,6 +244,7 @@ class PlaybackService {
         );
 
         await _audioPlayer.setAudioSource(source);
+        _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
         
         if (job.lastPositionSeconds > 0 && job.watchedPercent < 0.95) {
           await _audioPlayer.seek(Duration(seconds: job.lastPositionSeconds));
@@ -212,6 +278,7 @@ class PlaybackService {
         _videoController = VideoPlayerController.file(File(job.localPath!));
         await _videoController!.initialize();
         _videoController!.addListener(_videoListener);
+        _videoController!.setLooping(_loopMode == LoopModeState.one);
         
         if (job.lastPositionSeconds > 0 && job.watchedPercent < 0.95) {
           await _videoController!.seekTo(Duration(seconds: job.lastPositionSeconds));
@@ -260,10 +327,8 @@ class PlaybackService {
   Future<void> stop() async {
     _saveProgress();
     
-    // Stop audio
     await _audioPlayer.stop();
     
-    // Stop and dispose video
     if (_videoController != null) {
       _videoController!.removeListener(_videoListener);
       await _videoController!.pause();
@@ -332,5 +397,6 @@ class PlaybackService {
     _bufferedController.close();
     _durationController.close();
     _sleepTimerController.close();
+    _loopModeController.close();
   }
 }
