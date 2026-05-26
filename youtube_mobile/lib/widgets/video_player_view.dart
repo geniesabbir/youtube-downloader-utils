@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../models/video_job.dart';
@@ -809,42 +812,324 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     if (_segments.isEmpty) {
       return const Center(child: Text("No transcript segments found.", style: TextStyle(color: Colors.white24)));
     }
-    return ListView.builder(
-      itemCount: _segments.length,
-      itemBuilder: (context, index) {
-        final seg = _segments[index];
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return _InteractiveTranscriptView(
+      segments: _segments,
+      playback: _playback,
+      onJumpToTimestamp: _jumpToTimestamp,
+      onExportPressed: _showTranscriptExportBottomSheet,
+      formatDuration: _formatDuration,
+    );
+  }
+
+  void _showTranscriptExportBottomSheet() {
+    bool includeTimestamps = true;
+    String selectedFormat = 'MARKDOWN';
+    bool exporting = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xff090c12),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final isMediaFormat = selectedFormat == 'SUBRIP' || selectedFormat == 'JSON';
+            return Container(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "📂 TRANSCRIPT EXPORT & SHARE HUB",
+                    style: TextStyle(
+                      color: AppColors.cyan,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.0,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "Format, copy, or export the active interactive lecture timeline for student note-taking.",
+                    style: TextStyle(color: Colors.white54, fontSize: 11.5),
+                  ),
+                  const Divider(color: Colors.white12, height: 24),
+                  
+                  const Text(
+                    "SELECT FORMAT",
+                    style: TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                  ),
+                  const SizedBox(height: 10),
+                  
+                  Row(
+                    children: [
+                      _buildFormatCard(
+                        title: "Markdown",
+                        ext: ".md",
+                        isSelected: selectedFormat == 'MARKDOWN',
+                        onTap: () => setSheetState(() => selectedFormat = 'MARKDOWN'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFormatCard(
+                        title: "Plain Text",
+                        ext: ".txt",
+                        isSelected: selectedFormat == 'TEXT',
+                        onTap: () => setSheetState(() => selectedFormat = 'TEXT'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFormatCard(
+                        title: "Subtitle",
+                        ext: ".srt",
+                        isSelected: selectedFormat == 'SUBRIP',
+                        onTap: () => setSheetState(() => selectedFormat = 'SUBRIP'),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFormatCard(
+                        title: "JSON Data",
+                        ext: ".json",
+                        isSelected: selectedFormat == 'JSON',
+                        onTap: () => setSheetState(() => selectedFormat = 'JSON'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  if (!isMediaFormat) ...[
+                    Row(
+                      children: [
+                        const Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("Include Timestamps", style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.bold)),
+                            SizedBox(height: 2),
+                            Text("Prepend [MM:SS] to segment text", style: TextStyle(color: Colors.white38, fontSize: 10.5)),
+                          ],
+                        ),
+                        const Spacer(),
+                        Switch(
+                          value: includeTimestamps,
+                          activeColor: AppColors.cyan,
+                          onChanged: (val) {
+                            setSheetState(() {
+                              includeTimestamps = val;
+                            });
+                          },
+                        )
+                      ],
+                    ),
+                    const Divider(color: Colors.white10, height: 20),
+                  ],
+
+                  if (exporting) ...[
+                    const Center(
+                      child: Column(
+                        children: [
+                          SizedBox(height: 10),
+                          CircularProgressIndicator(color: AppColors.mint),
+                          SizedBox(height: 12),
+                          Text("Compiling export files...", style: TextStyle(color: AppColors.mint, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.panel,
+                              side: const BorderSide(color: AppColors.stroke),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: () async {
+                              final text = _generateFormattedTranscript(
+                                includeTimestamps: includeTimestamps,
+                                format: selectedFormat,
+                              );
+                              await Clipboard.setData(ClipboardData(text: text));
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Transcript copied to clipboard!", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                                  backgroundColor: AppColors.mint,
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.copy_rounded, color: Colors.white, size: 18),
+                            label: const Text("COPY TEXT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.cyan,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            onPressed: () async {
+                              setSheetState(() => exporting = true);
+                              try {
+                                final text = _generateFormattedTranscript(
+                                  includeTimestamps: includeTimestamps,
+                                  format: selectedFormat,
+                                );
+                                final ext = selectedFormat == 'MARKDOWN' ? 'md' : (selectedFormat == 'TEXT' ? 'txt' : (selectedFormat == 'SUBRIP' ? 'srt' : 'json'));
+                                
+                                final cleanTitle = _currentJob.title.replaceAll(RegExp(r'[^\w\s\-\.]'), '').trim().replaceAll(RegExp(r'\s+'), '_');
+                                final fileName = 'transcript_${cleanTitle}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+                                
+                                final directory = await getApplicationDocumentsDirectory();
+                                final transcriptsDir = Directory('${directory.path}/Transcripts');
+                                if (!await transcriptsDir.exists()) {
+                                  await transcriptsDir.create(recursive: true);
+                                }
+                                final file = File('${transcriptsDir.path}/$fileName');
+                                await file.writeAsString(text);
+                                
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Exported to Documents/Transcripts/$fileName", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    backgroundColor: AppColors.cyan,
+                                    duration: const Duration(seconds: 4),
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              } catch (e) {
+                                setSheetState(() => exporting = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Failed to export: $e", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    backgroundColor: Colors.redAccent,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.save_alt_rounded, color: Colors.black, size: 18),
+                            label: const Text("EXPORT FILE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFormatCard({
+    required String title,
+    required String ext,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.cyan.withOpacity(0.08) : AppColors.panel,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? AppColors.cyan : AppColors.stroke,
+              width: 1.2,
+            ),
+          ),
+          child: Column(
             children: [
-              GestureDetector(
-                onTap: () => _jumpToTimestamp(seg.start),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: AppColors.cyan.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: AppColors.cyan.withOpacity(0.25)),
-                  ),
-                  child: Text(
-                    _formatDuration(seg.start),
-                    style: const TextStyle(color: AppColors.cyan, fontSize: 10.5, fontFamily: "monospace", fontWeight: FontWeight.bold),
-                  ),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white60,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  seg.text,
-                  style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.45),
+              const SizedBox(height: 2),
+              Text(
+                ext,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isSelected ? AppColors.cyan : Colors.white30,
+                  fontSize: 9.5,
+                  fontFamily: "monospace",
                 ),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
+  }
+
+  String _generateFormattedTranscript({required bool includeTimestamps, required String format}) {
+    final buffer = StringBuffer();
+    if (format == 'JSON') {
+      final List<Map<String, dynamic>> jsonList = _segments.map((seg) {
+        return {
+          'start_seconds': seg.start.inSeconds,
+          'start_display': _formatDuration(seg.start),
+          'end_seconds': seg.end.inSeconds,
+          'end_display': _formatDuration(seg.end),
+          'text': seg.text,
+        };
+      }).toList();
+      return const JsonEncoder.withIndent('  ').convert(jsonList);
+    }
+
+    if (format == 'SUBRIP') {
+      for (int i = 0; i < _segments.length; i++) {
+        final seg = _segments[i];
+        buffer.writeln('${i + 1}');
+        buffer.writeln('${_formatSrtTimestamp(seg.start)} --> ${_formatSrtTimestamp(seg.end)}');
+        buffer.writeln(seg.text);
+        buffer.writeln();
+      }
+      return buffer.toString();
+    }
+
+    for (final seg in _segments) {
+      if (includeTimestamps) {
+        if (format == 'MARKDOWN') {
+          buffer.writeln('**[${_formatDuration(seg.start)}]** ${seg.text}\n');
+        } else {
+          buffer.writeln('[${_formatDuration(seg.start)}] ${seg.text}');
+        }
+      } else {
+        if (format == 'MARKDOWN') {
+          buffer.writeln('${seg.text}\n');
+        } else {
+          buffer.writeln(seg.text);
+        }
+      }
+    }
+    return buffer.toString();
+  }
+
+  String _formatSrtTimestamp(Duration duration) {
+    final hours = duration.inHours.toString().padLeft(2, '0');
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    final milliseconds = duration.inMilliseconds.remainder(1000).toString().padLeft(3, '0');
+    return '$hours:$minutes:$seconds,$milliseconds';
   }
 
   Widget _buildSearchTab() {
@@ -1087,3 +1372,213 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
     return oldDelegate.child != child;
   }
 }
+
+class _InteractiveTranscriptView extends StatefulWidget {
+  final List<TranscriptSegment> segments;
+  final PlaybackService playback;
+  final Function(Duration) onJumpToTimestamp;
+  final VoidCallback onExportPressed;
+  final String Function(Duration) formatDuration;
+
+  const _InteractiveTranscriptView({
+    required this.segments,
+    required this.playback,
+    required this.onJumpToTimestamp,
+    required this.onExportPressed,
+    required this.formatDuration,
+  });
+
+  @override
+  State<_InteractiveTranscriptView> createState() => _InteractiveTranscriptViewState();
+}
+
+class _InteractiveTranscriptViewState extends State<_InteractiveTranscriptView> {
+  final ScrollController _scrollController = ScrollController();
+  StreamSubscription<Duration>? _positionSubscription;
+  int _activeIndex = -1;
+  bool _autoScrollEnabled = true;
+  List<GlobalKey> _itemKeys = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _itemKeys = List.generate(widget.segments.length, (_) => GlobalKey());
+    _positionSubscription = widget.playback.positionStream.listen((currentPos) {
+      if (!mounted) return;
+      
+      int newActiveIndex = -1;
+      for (int i = 0; i < widget.segments.length; i++) {
+        final seg = widget.segments[i];
+        if (currentPos >= seg.start && currentPos <= seg.end) {
+          newActiveIndex = i;
+          break;
+        }
+      }
+
+      if (newActiveIndex != _activeIndex) {
+        setState(() {
+          _activeIndex = newActiveIndex;
+        });
+
+        if (_autoScrollEnabled && newActiveIndex != -1 && newActiveIndex < _itemKeys.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            final key = _itemKeys[newActiveIndex];
+            final context = key.currentContext;
+            if (context != null) {
+              final renderObject = context.findRenderObject();
+              if (renderObject != null && _scrollController.hasClients) {
+                _scrollController.position.ensureVisible(
+                  renderObject,
+                  duration: const Duration(milliseconds: 350),
+                  alignment: 0.5, // Centers the item exactly in the transcript list
+                  curve: Curves.easeInOutCubic,
+                );
+              }
+            }
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _InteractiveTranscriptView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.segments.length != oldWidget.segments.length) {
+      _itemKeys = List.generate(widget.segments.length, (_) => GlobalKey());
+    }
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Top Tools Bar: Interactive Timeline Header & Export options
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0, top: 4.0),
+          child: Row(
+            children: [
+              const Icon(Icons.analytics_outlined, color: AppColors.cyan, size: 14),
+              const SizedBox(width: 6),
+              Text(
+                "TIMELINE",
+                style: TextStyle(color: AppColors.cyan.withOpacity(0.8), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+              ),
+              const Spacer(),
+              // Auto-Scroll Sync Toggle with state styling
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: _autoScrollEnabled ? AppColors.mint : AppColors.muted,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(
+                  _autoScrollEnabled ? Icons.sync_rounded : Icons.sync_disabled_rounded,
+                  size: 13,
+                ),
+                label: const Text(
+                  "SYNC",
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _autoScrollEnabled = !_autoScrollEnabled;
+                  });
+                },
+              ),
+              const SizedBox(width: 8),
+              // Export Hub Button
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.mint,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.share_rounded, size: 13),
+                label: const Text("EXPORT", style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold)),
+                onPressed: widget.onExportPressed,
+              ),
+            ],
+          ),
+        ),
+        const Divider(color: Colors.white10, height: 1, thickness: 1),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView.builder(
+            controller: _scrollController,
+            cacheExtent: 9999.0, // Keeps all GlobalKeys built so context is always available
+            itemCount: widget.segments.length,
+            itemBuilder: (context, index) {
+              final seg = widget.segments[index];
+              final isActive = _activeIndex == index;
+
+              return AnimatedContainer(
+                key: _itemKeys[index], // Key assigned here!
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+                padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+                margin: const EdgeInsets.symmetric(vertical: 2.0),
+                decoration: BoxDecoration(
+                  color: isActive ? AppColors.panelAlt.withOpacity(0.4) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  border: isActive
+                      ? const Border(left: BorderSide(color: AppColors.mint, width: 3.0))
+                      : const Border(left: BorderSide(color: Colors.transparent, width: 3.0)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GestureDetector(
+                      onTap: () => widget.onJumpToTimestamp(seg.start),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isActive ? AppColors.mint.withOpacity(0.2) : AppColors.cyan.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: isActive ? AppColors.mint.withOpacity(0.5) : AppColors.cyan.withOpacity(0.25)),
+                        ),
+                        child: Text(
+                          widget.formatDuration(seg.start),
+                          style: TextStyle(
+                            color: isActive ? AppColors.mint : AppColors.cyan,
+                            fontSize: 10.5,
+                            fontFamily: "monospace",
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        seg.text,
+                        style: TextStyle(
+                          color: isActive ? Colors.white : Colors.white70,
+                          fontSize: isActive ? 13.5 : 13,
+                          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
