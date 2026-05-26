@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import '../models/video_job.dart';
 import '../core/events/event_bus.dart';
@@ -81,8 +82,24 @@ class PlaybackService with WidgetsBindingObserver {
 
   int? get sleepTimerSecondsLeft => _sleepTimerDuration?.inSeconds;
 
+  Future<void> _loadLoopMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final modeIndex = prefs.getInt('playback_loop_mode');
+      if (modeIndex != null && modeIndex >= 0 && modeIndex < LoopModeState.values.length) {
+        _loopMode = LoopModeState.values[modeIndex];
+        _loopModeController.add(_loopMode);
+        _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
+        if (_videoController != null && !(_activeJob?.isAudio ?? true)) {
+          _videoController?.setLooping(_loopMode == LoopModeState.one);
+        }
+      }
+    } catch (_) {}
+  }
+
   void init() {
     WidgetsBinding.instance.addObserver(this);
+    _loadLoopMode();
 
     _audioPlayer.playerStateStream.listen((playerState) {
       if (_activeJob == null) return;
@@ -233,7 +250,7 @@ class PlaybackService with WidgetsBindingObserver {
     }
   }
 
-  void toggleLoopMode() {
+  void toggleLoopMode() async {
     if (_loopMode == LoopModeState.off) {
       _loopMode = LoopModeState.one;
     } else if (_loopMode == LoopModeState.one) {
@@ -247,6 +264,11 @@ class PlaybackService with WidgetsBindingObserver {
     if (!(_activeJob?.isAudio ?? true)) {
       _videoController?.setLooping(_loopMode == LoopModeState.one);
     }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('playback_loop_mode', _loopMode.index);
+    } catch (_) {}
   }
 
   void _saveProgress() {
