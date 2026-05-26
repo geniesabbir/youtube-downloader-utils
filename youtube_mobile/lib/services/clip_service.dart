@@ -23,8 +23,21 @@ class ClipService {
     await Future.delayed(const Duration(milliseconds: 1500));
 
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final clipsDir = Directory('${directory.path}/YTUtils/Clips');
+      String storagePath;
+      if (Platform.isAndroid) {
+        final publicDir = Directory('/storage/emulated/0/Download');
+        if (await publicDir.exists()) {
+          storagePath = publicDir.path;
+        } else {
+          final directory = await getApplicationDocumentsDirectory();
+          storagePath = '${directory.path}/YTUtils/Clips';
+        }
+      } else {
+        final directory = await getApplicationDocumentsDirectory();
+        storagePath = '${directory.path}/YTUtils/Clips';
+      }
+
+      final clipsDir = Directory(storagePath);
       if (!await clipsDir.exists()) {
         await clipsDir.create(recursive: true);
       }
@@ -34,9 +47,9 @@ class ClipService {
       final startStr = _formatDuration(startTime).replaceAll(':', '-');
       final endStr = _formatDuration(endTime).replaceAll(':', '-');
       
-      final clipPath = '${clipsDir.path}/Clip_${job.jobId}_${startStr}_to_${endStr}_$timestamp.$ext';
+      final safeTitle = job.title.replaceAll(RegExp(r'[^\w\s\-\.]'), '_');
+      final clipPath = '${clipsDir.path}/Clip_${safeTitle}_${startStr}_to_${endStr}_$timestamp.$ext';
       
-      // To simulate, we simply copy the source file to represent the clip so the output file plays perfectly in the app!
       await sourceFile.copy(clipPath);
       return clipPath;
     } catch (_) {

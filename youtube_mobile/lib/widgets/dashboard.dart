@@ -1006,26 +1006,31 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
           children: [
             // Batch Paste Input Panel
             Container(
-              padding: const EdgeInsets.all(12.0),
-              decoration: BoxDecoration(
-                color: const Color(0xff121820).withOpacity(0.5),
-                borderRadius: BorderRadius.circular(16.0),
-                border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-              ),
+              padding: EdgeInsets.zero,
+              decoration: const BoxDecoration(),
               child: Column(
                 children: [
                   TextField(
                     controller: _urlInputController,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white, fontSize: 13.0),
                     maxLines: 2,
                     decoration: InputDecoration(
-                      hintText:
-                          "Paste single, batch, or playlist YouTube URLs...",
+                      hintText: "Paste single, batch, or playlist YouTube URLs...",
                       hintStyle: TextStyle(
                         color: Colors.white.withOpacity(0.3),
-                        fontSize: 13,
+                        fontSize: 12.5,
                       ),
-                      border: InputBorder.none,
+                      filled: true,
+                      fillColor: const Color(0xff121820),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: BorderSide(color: Colors.blueGrey.withOpacity(0.2)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: const BorderSide(color: AppColors.cyan),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -1034,55 +1039,71 @@ class _DashboardState extends State<Dashboard> with TickerProviderStateMixin {
                     children: [
                       Row(
                         children: [
+                          const Icon(Icons.music_note_rounded, color: Colors.white70, size: 14),
+                          const SizedBox(width: 4),
                           const Text(
                             "Audio Only",
-                            style: TextStyle(color: Colors.white, fontSize: 12),
+                            style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
                           ),
-                          Switch(
-                            value: _isAudioOnly,
-                            activeColor: const Color(0xff00ff88),
-                            onChanged: (val) {
-                              setState(() {
-                                _isAudioOnly = val;
-                              });
-                            },
+                          const SizedBox(width: 2),
+                          SizedBox(
+                            height: 24,
+                            child: Transform.scale(
+                              scale: 0.75,
+                              child: Switch(
+                                value: _isAudioOnly,
+                                activeColor: const Color(0xff00ff88),
+                                onChanged: (val) {
+                                  setState(() {
+                                    _isAudioOnly = val;
+                                  });
+                                },
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xff0a0d14),
-                          foregroundColor: const Color(0xff00d2ff),
-                          side: const BorderSide(
-                            color: Color(0xff00d2ff),
-                            width: 1.0,
+                      SizedBox(
+                        height: 30,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xff0a0d14),
+                            foregroundColor: const Color(0xff00d2ff),
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            side: const BorderSide(
+                              color: Color(0xff00d2ff),
+                              width: 1.0,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        icon: _isResolvingPlaylist
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xff00d2ff)),
+                          icon: _isResolvingPlaylist
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xff00d2ff)),
+                                  ),
+                                )
+                              : Icon(
+                                  _stagedUrls.isEmpty
+                                      ? Icons.playlist_add_check_circle_outlined
+                                      : Icons.rocket_launch_outlined,
+                                  size: 13,
                                 ),
-                              )
-                            : Icon(
-                                _stagedUrls.isEmpty
-                                    ? Icons.playlist_add_check_circle_outlined
-                                    : Icons.rocket_launch_outlined,
-                              ),
-                        label: Text(
-                          _isResolvingPlaylist
-                              ? "RESOLVING PLAYLIST..."
-                              : (_stagedUrls.isEmpty ? "REVIEW BATCH" : "START BATCH"),
+                          label: Text(
+                            _isResolvingPlaylist
+                                ? "RESOLVING..."
+                                : (_stagedUrls.isEmpty ? "REVIEW BATCH" : "START BATCH"),
+                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800),
+                          ),
+                          onPressed: _isResolvingPlaylist
+                              ? null
+                              : (_stagedUrls.isEmpty ? _reviewBatch : _startBatch),
                         ),
-                        onPressed: _isResolvingPlaylist
-                            ? null
-                            : (_stagedUrls.isEmpty ? _reviewBatch : _startBatch),
                       ),
                     ],
                   ),

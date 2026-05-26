@@ -48,17 +48,36 @@ class PlaybackService with WidgetsBindingObserver {
   LoopModeState get loopMode => _loopMode;
   
   Duration get position {
+    final startSecs = _activeJob?.clipStartSeconds ?? 0;
     if (_activeJob?.isAudio ?? true) {
-      return _audioPlayer.position;
+      final pos = _audioPlayer.position;
+      if (_activeJob?.clipStartSeconds != null) {
+        final relative = pos - Duration(seconds: startSecs);
+        return relative.isNegative ? Duration.zero : relative;
+      }
+      return pos;
     } else {
       if (_videoController != null && _videoController!.value.isInitialized && !_audioPlayer.playing) {
-        return _videoController!.value.position;
+        final pos = _videoController!.value.position;
+        if (_activeJob?.clipStartSeconds != null) {
+          final relative = pos - Duration(seconds: startSecs);
+          return relative.isNegative ? Duration.zero : relative;
+        }
+        return pos;
       }
-      return _audioPlayer.position;
+      final pos = _audioPlayer.position;
+      if (_activeJob?.clipStartSeconds != null) {
+        final relative = pos - Duration(seconds: startSecs);
+        return relative.isNegative ? Duration.zero : relative;
+      }
+      return pos;
     }
   }
 
   Duration get duration {
+    if (_activeJob?.clipStartSeconds != null && _activeJob?.clipEndSeconds != null) {
+      return Duration(seconds: _activeJob!.clipEndSeconds! - _activeJob!.clipStartSeconds!);
+    }
     if (_activeJob?.isAudio ?? true) {
       return _audioPlayer.duration ?? Duration.zero;
     } else {
@@ -123,6 +142,17 @@ class PlaybackService with WidgetsBindingObserver {
 
     _audioPlayer.positionStream.listen((pos) {
       if (_activeJob == null) return;
+      
+      // Handling clip end bounds for audio player
+      if (_activeJob!.clipEndSeconds != null && pos.inSeconds >= _activeJob!.clipEndSeconds!) {
+        _audioPlayer.pause();
+        _audioPlayer.seek(Duration(seconds: _activeJob!.clipStartSeconds ?? 0));
+        _state = PlaybackState.completed;
+        _stateController.add(_state);
+        _handlePlaybackCompletion();
+        return;
+      }
+
       if (_activeJob!.isAudio || (_videoController == null || !_videoController!.value.isInitialized)) {
         _positionController.add(pos);
       }
@@ -206,6 +236,17 @@ class PlaybackService with WidgetsBindingObserver {
 
     final value = _videoController!.value;
     
+    // Handling clip end bounds
+    if (_activeJob!.clipEndSeconds != null && value.position.inSeconds >= _activeJob!.clipEndSeconds!) {
+      _videoController!.pause();
+      _videoController!.seekTo(Duration(seconds: _activeJob!.clipStartSeconds ?? 0));
+      final newState = PlaybackState.completed;
+      _state = newState;
+      _stateController.add(_state);
+      _handlePlaybackCompletion();
+      return;
+    }
+
     PlaybackState newState;
     if (value.isCompleted) {
       newState = PlaybackState.completed;
@@ -328,19 +369,20 @@ class PlaybackService with WidgetsBindingObserver {
         await _audioPlayer.setAudioSource(source);
         _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
         
-        if (job.lastPositionSeconds > 0 && job.watchedPercent < 0.95) {
+        final startSecs = job.clipStartSeconds ?? 0;
+        if (job.lastPositionSeconds > startSecs && job.watchedPercent < 0.95) {
           await _audioPlayer.seek(Duration(seconds: job.lastPositionSeconds));
         } else {
-          await _audioPlayer.seek(Duration.zero);
+          await _audioPlayer.seek(Duration(seconds: startSecs));
           final updatedJob = job.copyWith(
-            lastPositionSeconds: 0,
+            lastPositionSeconds: startSecs,
             watchedPercent: 0.0,
           );
           _activeJob = updatedJob;
           EventBus().fire(
             PlaybackProgressEvent(
               jobId: job.jobId,
-              position: Duration.zero,
+              position: Duration(seconds: startSecs),
               duration: Duration.zero,
               watchedPercent: 0.0,
             ),
@@ -370,20 +412,21 @@ class PlaybackService with WidgetsBindingObserver {
         await _audioPlayer.stop();
 
         // 3. Handle seek to last position
-        if (job.lastPositionSeconds > 0 && job.watchedPercent < 0.95) {
+        final startSecs = job.clipStartSeconds ?? 0;
+        if (job.lastPositionSeconds > startSecs && job.watchedPercent < 0.95) {
           final targetPos = Duration(seconds: job.lastPositionSeconds);
           await _videoController!.seekTo(targetPos);
         } else {
-          await _videoController!.seekTo(Duration.zero);
+          await _videoController!.seekTo(Duration(seconds: startSecs));
           final updatedJob = job.copyWith(
-            lastPositionSeconds: 0,
+            lastPositionSeconds: startSecs,
             watchedPercent: 0.0,
           );
           _activeJob = updatedJob;
           EventBus().fire(
             PlaybackProgressEvent(
               jobId: job.jobId,
-              position: Duration.zero,
+              position: Duration(seconds: startSecs),
               duration: Duration.zero,
               watchedPercent: 0.0,
             ),
@@ -445,13 +488,28 @@ class PlaybackService with WidgetsBindingObserver {
   }
 
   Future<void> seek(Duration position) async {
+    final start = _activeJob?.clipStartSeconds ?? 0;
+    final end = _activeJob?.clipEndSeconds;
+    var target = position;
+    if (_activeJob?.clipStartSeconds != null) {
+      // Seek position is relative to start of clip, map back to absolute
+      target = position + Duration(seconds: start);
+    }
+    if (end != null) {
+      if (target.inSeconds < start) {
+        target = Duration(seconds: start);
+      } else if (target.inSeconds > end) {
+        target = Duration(seconds: end);
+      }
+    }
+
     if (_activeJob?.isAudio ?? true) {
-      await _audioPlayer.seek(position);
+      await _audioPlayer.seek(target);
     } else {
       if (_audioPlayer.playing) {
-        await _audioPlayer.seek(position);
+        await _audioPlayer.seek(target);
       } else {
-        await _videoController?.seekTo(position);
+        await _videoController?.seekTo(target);
       }
     }
   }

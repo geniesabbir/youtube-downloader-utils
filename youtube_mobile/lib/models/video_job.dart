@@ -44,6 +44,8 @@ class VideoJob {
   List<String> tags;
   bool isFavorited;
   String? collectionId;
+  int? clipStartSeconds;
+  int? clipEndSeconds;
 
   VideoJob({
     required this.jobId,
@@ -71,6 +73,8 @@ class VideoJob {
     this.tags = const [],
     this.isFavorited = false,
     this.collectionId,
+    this.clipStartSeconds,
+    this.clipEndSeconds,
   });
 
   factory VideoJob.fromJson(Map<String, dynamic> json) {
@@ -104,6 +108,8 @@ class VideoJob {
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],
       isFavorited: json['isFavorited'] as bool? ?? false,
       collectionId: json['collectionId'] as String?,
+      clipStartSeconds: json['clipStartSeconds'] as int?,
+      clipEndSeconds: json['clipEndSeconds'] as int?,
     );
   }
 
@@ -134,6 +140,8 @@ class VideoJob {
       'tags': tags,
       'isFavorited': isFavorited,
       'collectionId': collectionId,
+      'clipStartSeconds': clipStartSeconds,
+      'clipEndSeconds': clipEndSeconds,
     };
   }
 
@@ -163,6 +171,8 @@ class VideoJob {
     bool? isFavorited,
     String? collectionId,
     bool clearCollectionId = false,
+    int? clipStartSeconds,
+    int? clipEndSeconds,
   }) {
     return VideoJob(
       jobId: jobId,
@@ -190,6 +200,8 @@ class VideoJob {
       tags: tags ?? this.tags,
       isFavorited: isFavorited ?? this.isFavorited,
       collectionId: clearCollectionId ? null : (collectionId ?? this.collectionId),
+      clipStartSeconds: clipStartSeconds ?? this.clipStartSeconds,
+      clipEndSeconds: clipEndSeconds ?? this.clipEndSeconds,
     );
   }
 
