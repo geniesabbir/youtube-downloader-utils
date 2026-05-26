@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import '../models/video_job.dart';
 import '../models/transcript.dart';
 import '../models/note.dart';
+import '../models/study_card.dart';
 import '../services/download_service.dart';
 import '../services/playback_service.dart';
 import '../services/transcript_service.dart';
@@ -44,10 +45,11 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   List<MediaNote> _notes = [];
   bool _loadingTranscript = false;
 
-  // AI Summary State
-  String _summaryText = "";
-  List<String> _keyPoints = [];
-  bool _generatingSummary = false;
+  // Active Study Workspace States
+  List<StudyCard> _studyCards = [];
+  String _personalSummary = "";
+  final TextEditingController _summaryController = TextEditingController();
+  bool _editingSummary = false;
 
   // Search State
   String _searchQuery = "";
@@ -63,7 +65,7 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   void initState() {
     super.initState();
     _currentJob = widget.job;
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     
     // Initialize Workspace Data
     _loadJobWorkspaceData();
@@ -159,23 +161,154 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   void _loadJobWorkspaceData() async {
     setState(() {
       _loadingTranscript = true;
-      _summaryText = "";
-      _keyPoints = [];
       _segments = [];
       _searchResults = [];
       _notes = [];
+      _studyCards = [];
+      _personalSummary = "";
     });
 
     final segs = await _transcriptService.getTranscript(_currentJob);
     final loadedNotes = await _loadPersistedNotes(_currentJob.jobId);
+    final loadedCards = await _loadPersistedStudyCards(_currentJob.jobId);
+    final loadedSummary = await _loadPersistedSummary(_currentJob.jobId);
 
     if (mounted) {
       setState(() {
         _segments = segs;
         _notes = loadedNotes;
+        _studyCards = loadedCards;
+        _personalSummary = loadedSummary;
+        _summaryController.text = loadedSummary;
         _loadingTranscript = false;
       });
     }
+  }
+
+  Future<List<StudyCard>> _loadPersistedStudyCards(String jobId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('study_flashcards_$jobId');
+    if (raw != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(raw);
+        return decoded.map((e) => StudyCard.fromJson(e)).toList();
+      } catch (_) {}
+    }
+    return [];
+  }
+
+  Future<String> _loadPersistedSummary(String jobId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('study_summary_$jobId') ?? "";
+  }
+
+  Future<void> _saveStudyCard(StudyCard card) async {
+    setState(() {
+      _studyCards.add(card);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(_studyCards.map((e) => e.toJson()).toList());
+    await prefs.setString('study_flashcards_${card.jobId}', raw);
+  }
+
+  Future<void> _deleteStudyCard(String cardId) async {
+    setState(() {
+      _studyCards.removeWhere((c) => c.cardId == cardId);
+    });
+    final prefs = await SharedPreferences.getInstance();
+    final raw = jsonEncode(_studyCards.map((e) => e.toJson()).toList());
+    await prefs.setString('study_flashcards_${_currentJob.jobId}', raw);
+  }
+
+  Future<void> _savePersonalSummary(String text) async {
+    setState(() {
+      _personalSummary = text;
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('study_summary_${_currentJob.jobId}', text);
+  }
+
+  List<TranscriptSegment> _parseSubtitles(String content) {
+    final List<TranscriptSegment> parsed = [];
+    var lines = content.replaceAll('\r\n', '\n').split('\n');
+    
+    Duration? currentStart;
+    Duration? currentEnd;
+    final List<String> currentTextLines = [];
+
+    for (var line in lines) {
+      var trimmed = line.trim();
+      if (trimmed.contains('-->')) {
+        if (currentStart != null && currentTextLines.isNotEmpty) {
+          parsed.add(TranscriptSegment(
+            start: currentStart,
+            end: currentEnd ?? currentStart + const Duration(seconds: 5),
+            text: currentTextLines.join(' '),
+          ));
+          currentTextLines.clear();
+        }
+        
+        final parts = trimmed.split('-->');
+        if (parts.length == 2) {
+          currentStart = _parseTimeCode(parts[0].trim());
+          currentEnd = _parseTimeCode(parts[1].trim());
+        }
+      } else if (trimmed.isNotEmpty && !RegExp(r'^\d+$').hasMatch(trimmed) && trimmed != 'WEBVTT') {
+        currentTextLines.add(trimmed);
+      }
+    }
+    
+    if (currentStart != null && currentTextLines.isNotEmpty) {
+      parsed.add(TranscriptSegment(
+        start: currentStart,
+        end: currentEnd ?? currentStart + const Duration(seconds: 5),
+        text: currentTextLines.join(' '),
+      ));
+    }
+
+    return parsed;
+  }
+
+  Future<void> _handleEditSegment(int index, String newText) async {
+    setState(() {
+      _segments[index] = TranscriptSegment(
+        start: _segments[index].start,
+        end: _segments[index].end,
+        text: newText,
+      );
+    });
+    await _transcriptService.saveTranscript(_currentJob.jobId, _segments);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Caption updated successfully!", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        backgroundColor: AppColors.mint,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Duration _parseTimeCode(String code) {
+    var clean = code.split(' ')[0];
+    clean = clean.replaceAll(',', '.');
+    final parts = clean.split(':');
+    
+    int hours = 0;
+    int minutes = 0;
+    double seconds = 0.0;
+    
+    if (parts.length == 3) {
+      hours = int.tryParse(parts[0]) ?? 0;
+      minutes = int.tryParse(parts[1]) ?? 0;
+      seconds = double.tryParse(parts[2]) ?? 0.0;
+    } else if (parts.length == 2) {
+      minutes = int.tryParse(parts[0]) ?? 0;
+      seconds = double.tryParse(parts[1]) ?? 0.0;
+    } else {
+      seconds = double.tryParse(clean) ?? 0.0;
+    }
+    
+    final totalMilliseconds = (hours * 3600 + minutes * 60 + seconds) * 1000;
+    return Duration(milliseconds: totalMilliseconds.round());
   }
 
   Future<List<MediaNote>> _loadPersistedNotes(String jobId) async {
@@ -206,23 +339,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
     final prefs = await SharedPreferences.getInstance();
     final raw = jsonEncode(_notes.map((e) => e.toJson()).toList());
     await prefs.setString('library_notes_${_currentJob.jobId}', raw);
-  }
-
-  void _generateAISummary() async {
-    setState(() {
-      _generatingSummary = true;
-    });
-
-    final summary = await _aiService.summarize(_segments, _currentJob.title);
-    final keyPointsList = await _aiService.extractKeyPoints(_segments);
-
-    if (mounted) {
-      setState(() {
-        _summaryText = summary;
-        _keyPoints = keyPointsList;
-        _generatingSummary = false;
-      });
-    }
   }
 
   void _triggerSearch(String query) {
@@ -360,7 +476,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
                           controller: _tabController,
                           children: [
                             _buildTranscriptTab(),
-                            _buildSearchTab(),
                             _buildNotesTab(),
                             _buildSummaryTab(),
                           ],
@@ -799,9 +914,8 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
         labelStyle: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
         tabs: const [
           Tab(text: "Transcript"),
-          Tab(text: "Search"),
           Tab(text: "Notes"),
-          Tab(text: "AI Summary"),
+          Tab(text: "Study Materials"),
         ],
       ),
     );
@@ -810,14 +924,60 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   // ── Tab Render Builders ────────────────────────────────────────────────────
   Widget _buildTranscriptTab() {
     if (_segments.isEmpty) {
-      return const Center(child: Text("No transcript segments found.", style: TextStyle(color: Colors.white24)));
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(height: 40),
+            const Icon(Icons.subtitles_off_rounded, size: 48, color: Colors.white24),
+            const SizedBox(height: 12),
+            const Text(
+              "NO TIMELINE TRANSCRIPT FOUND",
+              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.0),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "This video has no timed closed captions on YouTube.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white30, fontSize: 11.5),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.cyan,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: _showManualSubtitleImporterBottomSheet,
+              icon: const Icon(Icons.upload_file_rounded, color: Colors.black, size: 18),
+              label: const Text("IMPORT TRANSCRIPT", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11)),
+            ),
+          ],
+        ),
+      );
     }
-    return _InteractiveTranscriptView(
-      segments: _segments,
-      playback: _playback,
-      onJumpToTimestamp: _jumpToTimestamp,
-      onExportPressed: _showTranscriptExportBottomSheet,
-      formatDuration: _formatDuration,
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton.icon(
+              onPressed: _showManualSubtitleImporterBottomSheet,
+              icon: const Icon(Icons.edit_note_rounded, color: AppColors.cyan, size: 18),
+              label: const Text("EDIT / ADD TIMELINE LINES", style: TextStyle(color: AppColors.cyan, fontSize: 11.5, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        Expanded(
+          child: _InteractiveTranscriptView(
+            segments: _segments,
+            playback: _playback,
+            onJumpToTimestamp: _jumpToTimestamp,
+            onExportPressed: _showTranscriptExportBottomSheet,
+            formatDuration: _formatDuration,
+            onEditSegment: _handleEditSegment,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1256,80 +1416,284 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
   }
 
   Widget _buildSummaryTab() {
+    return _buildStudyMaterialsTab();
+  }
+
+  Widget _buildStudyMaterialsTab() {
     return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_summaryText.isEmpty && !_generatingSummary)
-            Center(
-              child: Column(
+          // Personal Summary Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.panel,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.stroke),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.edit_document, color: AppColors.cyan, size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          "PERSONAL STUDY SUMMARY",
+                          style: TextStyle(
+                            color: AppColors.cyan,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ],
+                    ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                      icon: Icon(
+                        _editingSummary ? Icons.check_circle_outline_rounded : Icons.edit_note_rounded,
+                        color: AppColors.mint,
+                        size: 16,
+                      ),
+                      label: Text(
+                        _editingSummary ? "SAVE" : "EDIT",
+                        style: const TextStyle(color: AppColors.mint, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: () {
+                        if (_editingSummary) {
+                          _savePersonalSummary(_summaryController.text.trim());
+                        }
+                        setState(() {
+                          _editingSummary = !_editingSummary;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+                const Divider(color: Colors.white10, height: 16),
+                if (_editingSummary)
+                  TextField(
+                    controller: _summaryController,
+                    maxLines: null,
+                    style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+                    decoration: const InputDecoration(
+                      hintText: "Write your study notes or outline the key concepts here...",
+                      hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+                      border: InputBorder.none,
+                    ),
+                  )
+                else
+                  Text(
+                    _personalSummary.trim().isEmpty
+                        ? "Take personal summaries or notes during playback. Tap Edit to begin."
+                        : _personalSummary,
+                    style: TextStyle(
+                      color: _personalSummary.trim().isEmpty ? Colors.white24 : Colors.white.withOpacity(0.9),
+                      fontSize: 12.5,
+                      height: 1.45,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Active Recall Flashcards Section Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
                 children: [
-                  const SizedBox(height: 30),
-                  const Icon(Icons.psychology_rounded, size: 48, color: AppColors.cyan),
-                  const SizedBox(height: 12),
-                  const Text("ON-DEVICE AI SUMMARIZATION", textAlign: TextAlign.center, style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.0)),
-                  const SizedBox(height: 6),
-                  Text("Generate study summaries and key points entirely offline using local AI models.", textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 12.0, height: 1.4)),
-                  const SizedBox(height: 20),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-                    onPressed: _generateAISummary,
-                    icon: const Icon(Icons.bolt_rounded, color: Colors.black),
-                    label: const Text("GENERATE COGNITIVE SUMMARY", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12)),
+                  Icon(Icons.style_outlined, color: AppColors.mint, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    "ACTIVE RECALL FLASHCARDS",
+                    style: TextStyle(
+                      color: AppColors.mint,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                      letterSpacing: 1.0,
+                    ),
                   ),
                 ],
               ),
-            )
-          else if (_generatingSummary)
-            const Center(
-              child: Column(
-                children: [
-                  SizedBox(height: 40),
-                  CircularProgressIndicator(color: AppColors.cyan),
-                  SizedBox(height: 16),
-                  Text("Gemini Nano compiling offline summary...", style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.bold)),
-                ],
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.mint.withOpacity(0.1),
+                  side: const BorderSide(color: AppColors.mint, width: 1),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: _showAddStudyCardDialog,
+                icon: const Icon(Icons.add_rounded, color: AppColors.mint, size: 14),
+                label: const Text(
+                  "ADD CARD",
+                  style: TextStyle(color: AppColors.mint, fontWeight: FontWeight.bold, fontSize: 10),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          if (_studyCards.isEmpty)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                child: Column(
+                  children: [
+                    const Icon(Icons.style, size: 36, color: Colors.white12),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "NO ACTIVE STUDY CARDS",
+                      style: TextStyle(color: Colors.white30, fontWeight: FontWeight.bold, fontSize: 10.5),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Create interactive Q&A flashcards to test your knowledge later.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white24, fontSize: 10.5),
+                    ),
+                  ],
+                ),
               ),
             )
-          else ...[
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.stroke)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(children: [Icon(Icons.description, color: AppColors.cyan, size: 20), SizedBox(width: 8), Text("OFFLINE EXECUTIVE SUMMARY", style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.bold, fontSize: 11.5))]),
-                  const Divider(color: Colors.white12, height: 20),
-                  Text(_summaryText, style: const TextStyle(color: Colors.white, fontSize: 12.5, height: 1.45)),
-                ],
-              ),
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _studyCards.length,
+              itemBuilder: (context, index) {
+                final card = _studyCards[index];
+                return _InteractiveFlashcard(
+                  card: card,
+                  onDelete: () => _deleteStudyCard(card.cardId),
+                  onSeek: _jumpToTimestamp,
+                  formatDuration: _formatDuration,
+                );
+              },
             ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.stroke)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Row(children: [Icon(Icons.auto_awesome, color: AppColors.mint, size: 20), SizedBox(width: 8), Text("AI EXTRACTED KEY POINTS", style: TextStyle(color: AppColors.mint, fontWeight: FontWeight.bold, fontSize: 11.5))]),
-                  const Divider(color: Colors.white12, height: 20),
-                  ..._keyPoints.map((point) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text("• ", style: TextStyle(color: AppColors.mint, fontWeight: FontWeight.bold, fontSize: 16)),
-                            Expanded(child: Text(point, style: const TextStyle(color: Colors.white, fontSize: 12.5, height: 1.4))),
-                          ],
-                        ),
-                      )),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-          ]
+          const SizedBox(height: 80),
         ],
       ),
+    );
+  }
+
+  void _showAddStudyCardDialog() {
+    final questionController = TextEditingController();
+    final answerController = TextEditingController();
+    
+    final currentPos = _currentJob.isAudio 
+        ? _playback.position 
+        : (_initialized ? _controller.value.position : Duration.zero);
+        
+    bool includeTimestamp = true;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xff0b0f17),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.stroke)),
+              title: const Row(
+                children: [
+                  Icon(Icons.style, color: AppColors.mint, size: 20),
+                  SizedBox(width: 8),
+                  Text("Add Active Recall Card", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: questionController,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: "Question / Concept",
+                      labelStyle: TextStyle(color: AppColors.cyan, fontSize: 12),
+                      hintText: "e.g., What is the primary parameter discussed?",
+                      hintStyle: TextStyle(color: Colors.white24, fontSize: 11),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: answerController,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: const InputDecoration(
+                      labelText: "Answer",
+                      labelStyle: TextStyle(color: AppColors.mint, fontSize: 12),
+                      hintText: "Type active recall explanation...",
+                      hintStyle: TextStyle(color: Colors.white24, fontSize: 11),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("Link current time", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                            SizedBox(height: 2),
+                            Text("Associates note to playback moment", style: TextStyle(color: Colors.white30, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        _formatDuration(currentPos),
+                        style: const TextStyle(color: AppColors.mint, fontWeight: FontWeight.bold, fontFamily: "monospace", fontSize: 12),
+                      ),
+                      Checkbox(
+                        value: includeTimestamp,
+                        activeColor: AppColors.mint,
+                        onChanged: (val) {
+                          setModalState(() {
+                            includeTimestamp = val ?? true;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CANCEL", style: TextStyle(color: Colors.white30, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.mint),
+                  onPressed: () {
+                    final q = questionController.text.trim();
+                    final a = answerController.text.trim();
+                    if (q.isNotEmpty && a.isNotEmpty) {
+                      final card = StudyCard(
+                        cardId: DateTime.now().millisecondsSinceEpoch.toString(),
+                        jobId: _currentJob.jobId,
+                        question: q,
+                        answer: a,
+                        timestamp: includeTimestamp ? currentPos : null,
+                        createdAt: DateTime.now(),
+                      );
+                      _saveStudyCard(card);
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: const Text("SAVE CARD", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1345,6 +1709,383 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
 
   String _formatDateTime(DateTime dt) {
     return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+
+  void _showManualSubtitleImporterBottomSheet() {
+    final contentController = TextEditingController();
+    String pasteMode = 'SRT'; // 'SRT' or 'LINE'
+    
+    // For single line inputs
+    final lineTextController = TextEditingController();
+    final startMinutesController = TextEditingController(text: "0");
+    final startSecondsController = TextEditingController(text: "0");
+    final durationSecondsController = TextEditingController(text: "5");
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xff090c12),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20.0)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AnimatedPadding(
+              padding: MediaQuery.of(context).viewInsets,
+              duration: const Duration(milliseconds: 100),
+              child: Container(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "📝 IMPORT OR BUILD OFFLINE TRANSCRIPT",
+                      style: TextStyle(
+                        color: AppColors.cyan,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13.0,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(
+                              child: Text("Paste SRT/VTT File", style: TextStyle(fontSize: 12)),
+                            ),
+                            selected: pasteMode == 'SRT',
+                            onSelected: (val) {
+                              if (val) setModalState(() => pasteMode = 'SRT');
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(
+                              child: Text("Add Timed Line", style: TextStyle(fontSize: 12)),
+                            ),
+                            selected: pasteMode == 'LINE',
+                            onSelected: (val) {
+                              if (val) setModalState(() => pasteMode = 'LINE');
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (pasteMode == 'SRT') ...[
+                      const Text(
+                        "Paste raw .srt or .vtt subtitle file text below. Standard timestamps (e.g. 00:01:20 --> 00:01:25) will be parsed.",
+                        style: TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        height: 150,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xff121820),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.stroke),
+                        ),
+                        child: SingleChildScrollView(
+                          child: TextField(
+                            controller: contentController,
+                            style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                            maxLines: null,
+                            decoration: const InputDecoration(
+                              hintText: "1\n00:00:05,000 --> 00:00:10,000\nThis is a manual subtitle line...",
+                              hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+                              border: InputBorder.none,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.mint,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () async {
+                            final rawText = contentController.text.trim();
+                            if (rawText.isNotEmpty) {
+                              final parsed = _parseSubtitles(rawText);
+                              if (parsed.isNotEmpty) {
+                                await _transcriptService.saveTranscript(_currentJob.jobId, parsed);
+                                setState(() {
+                                  _segments = parsed;
+                                });
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Successfully imported ${parsed.length} timed segments!", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                    backgroundColor: AppColors.mint,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Could not parse any valid timed tracks. Check format."),
+                                    backgroundColor: Colors.redAccent,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.playlist_add_check_rounded, color: Colors.black),
+                          label: const Text("PARSE AND BUILD TRANSCRIPT", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ] else ...[
+                      TextField(
+                        controller: lineTextController,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: const InputDecoration(
+                          labelText: "Caption Text",
+                          labelStyle: TextStyle(color: AppColors.cyan, fontSize: 12),
+                          hintText: "Type active recall cue or lyric...",
+                          hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: startMinutesController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: "Start Min",
+                                labelStyle: TextStyle(color: Colors.white54, fontSize: 11),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: startSecondsController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: "Start Sec",
+                                labelStyle: TextStyle(color: Colors.white54, fontSize: 11),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: durationSecondsController,
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: "Duration (s)",
+                                labelStyle: TextStyle(color: Colors.white54, fontSize: 11),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.cyan,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          onPressed: () async {
+                            final text = lineTextController.text.trim();
+                            if (text.isNotEmpty) {
+                              final min = int.tryParse(startMinutesController.text) ?? 0;
+                              final sec = int.tryParse(startSecondsController.text) ?? 0;
+                              final dur = int.tryParse(durationSecondsController.text) ?? 5;
+                              
+                              final start = Duration(minutes: min, seconds: sec);
+                              final end = start + Duration(seconds: dur);
+                              
+                              final segment = TranscriptSegment(start: start, end: end, text: text);
+                              final updatedSegments = List<TranscriptSegment>.from(_segments)..add(segment);
+                              updatedSegments.sort((a, b) => a.start.compareTo(b.start));
+                              
+                              await _transcriptService.saveTranscript(_currentJob.jobId, updatedSegments);
+                              setState(() {
+                                _segments = updatedSegments;
+                              });
+                              
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("Caption line saved!", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                  backgroundColor: AppColors.cyan,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.add_rounded, color: Colors.black),
+                          label: const Text("SAVE TIMED LINE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _InteractiveFlashcard extends StatefulWidget {
+  final StudyCard card;
+  final VoidCallback onDelete;
+  final ValueChanged<Duration> onSeek;
+  final String Function(Duration) formatDuration;
+
+  const _InteractiveFlashcard({
+    required this.card,
+    required this.onDelete,
+    required this.onSeek,
+    required this.formatDuration,
+  });
+
+  @override
+  State<_InteractiveFlashcard> createState() => _InteractiveFlashcardState();
+}
+
+class _InteractiveFlashcardState extends State<_InteractiveFlashcard> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 6.0),
+      padding: const EdgeInsets.all(14.0),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.stroke),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.card.question,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    if (widget.card.timestamp != null) ...[
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: () => widget.onSeek(widget.card.timestamp!),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.cyan.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.play_circle_outline, color: AppColors.cyan, size: 12),
+                              const SizedBox(width: 4),
+                              Text(
+                                widget.formatDuration(widget.card.timestamp!),
+                                style: const TextStyle(
+                                  color: AppColors.cyan,
+                                  fontFamily: "monospace",
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 18),
+                onPressed: widget.onDelete,
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white10, height: 20),
+          InkWell(
+            onTap: () {
+              setState(() {
+                _revealed = !_revealed;
+              });
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+              decoration: BoxDecoration(
+                color: _revealed ? AppColors.mint.withOpacity(0.06) : Colors.white10,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _revealed ? AppColors.mint.withOpacity(0.2) : Colors.transparent,
+                ),
+              ),
+              child: AnimatedCrossFade(
+                firstChild: const Center(
+                  child: Text(
+                    "TAP TO REVEAL ANSWER",
+                    style: TextStyle(
+                      color: AppColors.mint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                secondChild: Text(
+                  widget.card.answer,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.85),
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
+                crossFadeState: _revealed ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                duration: const Duration(milliseconds: 150),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1379,6 +2120,7 @@ class _InteractiveTranscriptView extends StatefulWidget {
   final Function(Duration) onJumpToTimestamp;
   final VoidCallback onExportPressed;
   final String Function(Duration) formatDuration;
+  final Function(int, String) onEditSegment;
 
   const _InteractiveTranscriptView({
     required this.segments,
@@ -1386,6 +2128,7 @@ class _InteractiveTranscriptView extends StatefulWidget {
     required this.onJumpToTimestamp,
     required this.onExportPressed,
     required this.formatDuration,
+    required this.onEditSegment,
   });
 
   @override
@@ -1570,6 +2313,11 @@ class _InteractiveTranscriptViewState extends State<_InteractiveTranscriptView> 
                         ),
                       ),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, color: Colors.white30, size: 14),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _showEditSegmentDialog(context, index, seg.text),
+                    ),
                   ],
                 ),
               );
@@ -1577,6 +2325,48 @@ class _InteractiveTranscriptViewState extends State<_InteractiveTranscriptView> 
           ),
         ),
       ],
+    );
+  }
+
+  void _showEditSegmentDialog(BuildContext context, int index, String currentText) {
+    final controller = TextEditingController(text: currentText);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xff0b0f17),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: AppColors.stroke)),
+          title: const Text("Edit Caption Line", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: controller,
+            maxLines: null,
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            decoration: const InputDecoration(
+              hintText: "Enter custom text...",
+              hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white10)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppColors.cyan)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("CANCEL", style: TextStyle(color: Colors.white30, fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan),
+              onPressed: () {
+                final newText = controller.text.trim();
+                if (newText.isNotEmpty) {
+                  widget.onEditSegment(index, newText);
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text("SAVE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
     );
   }
 }

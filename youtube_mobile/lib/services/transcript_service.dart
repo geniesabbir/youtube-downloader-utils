@@ -20,7 +20,20 @@ class TranscriptService {
     if (cached != null) {
       try {
         final List<dynamic> decoded = jsonDecode(cached);
-        return decoded.map((e) => TranscriptSegment.fromJson(e)).toList();
+        final list = decoded.map((e) => TranscriptSegment.fromJson(e)).toList();
+        
+        // Self-healing check: Discard pre-existing mockup cached data
+        final hasMockData = list.any((seg) =>
+          seg.text.contains("comprehensive overview about") ||
+          seg.text.contains("foundational concepts shared by") ||
+          seg.text.contains("Many developers and researchers have discussed")
+        );
+        
+        if (hasMockData) {
+          await prefs.remove(cacheKey);
+        } else {
+          return list;
+        }
       } catch (_) {}
     }
 
@@ -45,9 +58,9 @@ class TranscriptService {
       }
     }
 
-    // If empty, generate a gorgeous contextual mockup based on video details
+    // If empty, return empty list (do not generate mockups)
     if (segments.isEmpty) {
-      segments = _generateFallbackTranscript(job);
+      return [];
     }
 
     // Persist
@@ -55,34 +68,9 @@ class TranscriptService {
     return segments;
   }
 
-  List<TranscriptSegment> _generateFallbackTranscript(VideoJob job) {
-    // Standard mock list mapped to 15s chunks
-    final List<TranscriptSegment> list = [];
-    final titles = [
-      "Welcome to this comprehensive overview about ${job.title}.",
-      "Today we are exploring the foundational concepts shared by ${job.author}.",
-      "Many developers and researchers have discussed how these methods scale.",
-      "We will look at technical implications, design patterns, and storage solutions.",
-      "First, let's understand the problem and why modern paradigms fit so beautifully.",
-      "It allows for complete offline sovereignty without relying on cloud servers.",
-      "This on-device architecture acts as a primary differentiator for the platform.",
-      "Next, let's analyze key parameters and configuration steps.",
-      "You can configure these rules to run at periodic intervals in the background.",
-      "Let's jump into a live coding session demonstrating this interface.",
-      "We notice how performance is enhanced when data limits are structured.",
-      "Finally, let's summarize the key takeaways from today's discussion.",
-      "Thank you for watching, and make sure to star the repository for updates."
-    ];
-
-    for (int i = 0; i < titles.length; i++) {
-      list.add(
-        TranscriptSegment(
-          start: Duration(seconds: i * 25),
-          end: Duration(seconds: (i + 1) * 25),
-          text: titles[i],
-        ),
-      );
-    }
-    return list;
+  Future<void> saveTranscript(String jobId, List<TranscriptSegment> segments) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = '$_transcriptsPrefsPrefix$jobId';
+    await prefs.setString(cacheKey, jsonEncode(segments.map((e) => e.toJson()).toList()));
   }
 }
