@@ -974,9 +974,7 @@ class _UnifiedPlayerState extends State<UnifiedPlayer> with TickerProviderStateM
                 
                 GestureDetector(
                   onTap: () {
-                    setState(() {
-                      isPlaying ? _playback.videoController!.pause() : _playback.videoController!.play();
-                    });
+                    isPlaying ? _playback.pause() : _playback.resume();
                     _resetControlsTimer();
                   },
                   child: Container(

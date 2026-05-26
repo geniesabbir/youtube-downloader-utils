@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:video_player/video_player.dart';
@@ -10,7 +11,7 @@ import 'download_service.dart';
 enum PlaybackState { idle, loading, playing, paused, completed }
 enum LoopModeState { off, one, all }
 
-class PlaybackService {
+class PlaybackService with WidgetsBindingObserver {
   static final PlaybackService _instance = PlaybackService._internal();
   factory PlaybackService() => _instance;
   PlaybackService._internal();
@@ -21,9 +22,11 @@ class PlaybackService {
   VideoJob? _activeJob;
   PlaybackState _state = PlaybackState.idle;
   LoopModeState _loopMode = LoopModeState.off;
+  bool _isSettingUp = false;
   Timer? _sleepTimer;
   Duration? _sleepTimerDuration;
   DateTime _lastPositionSave = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastDriftCorrection = DateTime.fromMillisecondsSinceEpoch(0);
 
   final StreamController<PlaybackState> _stateController = StreamController<PlaybackState>.broadcast();
   final StreamController<Duration> _positionController = StreamController<Duration>.broadcast();
@@ -47,7 +50,10 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       return _audioPlayer.position;
     } else {
-      return _videoController?.value.position ?? Duration.zero;
+      if (_videoController != null && _videoController!.value.isInitialized && !_audioPlayer.playing) {
+        return _videoController!.value.position;
+      }
+      return _audioPlayer.position;
     }
   }
 
@@ -55,7 +61,10 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       return _audioPlayer.duration ?? Duration.zero;
     } else {
-      return _videoController?.value.duration ?? Duration.zero;
+      if (_videoController != null && _videoController!.value.isInitialized && !_audioPlayer.playing) {
+        return _videoController!.value.duration;
+      }
+      return _audioPlayer.duration ?? Duration.zero;
     }
   }
 
@@ -63,34 +72,43 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       return _audioPlayer.speed;
     } else {
-      return _videoController?.value.playbackSpeed ?? 1.0;
+      if (_videoController != null && _videoController!.value.isInitialized && !_audioPlayer.playing) {
+        return _videoController!.value.playbackSpeed;
+      }
+      return _audioPlayer.speed;
     }
   }
 
   int? get sleepTimerSecondsLeft => _sleepTimerDuration?.inSeconds;
 
   void init() {
+    WidgetsBinding.instance.addObserver(this);
+
     _audioPlayer.playerStateStream.listen((playerState) {
-      if (!(_activeJob?.isAudio ?? true)) return;
-      if (playerState.processingState == ProcessingState.idle) {
-        _state = PlaybackState.idle;
-      } else if (playerState.processingState == ProcessingState.loading ||
-          playerState.processingState == ProcessingState.buffering) {
-        _state = PlaybackState.loading;
-      } else if (playerState.processingState == ProcessingState.completed) {
-        _state = PlaybackState.completed;
+      if (_activeJob == null) return;
+      if (_activeJob!.isAudio || (_videoController == null || !_videoController!.value.isInitialized)) {
+        if (playerState.processingState == ProcessingState.idle) {
+          _state = PlaybackState.idle;
+        } else if (playerState.processingState == ProcessingState.loading ||
+            playerState.processingState == ProcessingState.buffering) {
+          _state = PlaybackState.loading;
+        } else if (playerState.processingState == ProcessingState.completed) {
+          _state = PlaybackState.completed;
+          _stateController.add(_state);
+          _handlePlaybackCompletion();
+          return;
+        } else {
+          _state = playerState.playing ? PlaybackState.playing : PlaybackState.paused;
+        }
         _stateController.add(_state);
-        _handlePlaybackCompletion();
-        return;
-      } else {
-        _state = playerState.playing ? PlaybackState.playing : PlaybackState.paused;
       }
-      _stateController.add(_state);
     });
 
     _audioPlayer.positionStream.listen((pos) {
-      if (!(_activeJob?.isAudio ?? true)) return;
-      _positionController.add(pos);
+      if (_activeJob == null) return;
+      if (_activeJob!.isAudio || (_videoController == null || !_videoController!.value.isInitialized)) {
+        _positionController.add(pos);
+      }
       
       final job = _activeJob;
       if (job != null && _state == PlaybackState.playing) {
@@ -103,26 +121,76 @@ class PlaybackService {
     });
     
     _audioPlayer.bufferedPositionStream.listen((buf) {
-      if (!(_activeJob?.isAudio ?? true)) return;
-      _bufferedController.add(buf);
+      if (_activeJob == null) return;
+      if (_activeJob!.isAudio || (_videoController == null || !_videoController!.value.isInitialized)) {
+        _bufferedController.add(buf);
+      }
     });
     
     _audioPlayer.durationStream.listen((dur) {
-      if (!(_activeJob?.isAudio ?? true)) return;
-      if (dur != null) _durationController.add(dur);
+      if (_activeJob == null) return;
+      if (_activeJob!.isAudio || (_videoController == null || !_videoController!.value.isInitialized)) {
+        if (dur != null) _durationController.add(dur);
+      }
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (_activeJob == null || _activeJob!.isAudio) return;
+
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // App is backgrounded: Pause video controller and hand off to audio player for notifications
+      if (_videoController != null && _videoController!.value.isPlaying && !_isSettingUp) {
+        final pos = _videoController!.value.position;
+        _isSettingUp = true;
+        await _videoController!.pause();
+
+        final source = AudioSource.file(
+          _activeJob!.localPath!,
+          tag: MediaItem(
+            id: _activeJob!.jobId,
+            album: "YT Utils Video",
+            title: _activeJob!.title,
+            artist: _activeJob!.author,
+            artUri: null,
+          ),
+        );
+        await _audioPlayer.setAudioSource(source);
+        await _audioPlayer.seek(pos);
+        _audioPlayer.play();
+        _isSettingUp = false;
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // App is resumed: Pause audio player and hand back control to video controller in sync
+      if (_videoController != null && !_isSettingUp) {
+        _isSettingUp = true;
+        final pos = _audioPlayer.position;
+        final wasPlaying = _audioPlayer.playing;
+
+        await _audioPlayer.pause();
+        await _audioPlayer.stop();
+
+        await _videoController!.seekTo(pos);
+        if (wasPlaying) {
+          _videoController!.play();
+        } else {
+          _videoController!.pause();
+        }
+        _isSettingUp = false;
+      }
+    }
+  }
+
   void _videoListener() {
-    if (_activeJob?.isAudio ?? true) return;
-    if (_videoController == null) return;
-    
+    if (_activeJob == null || _activeJob!.isAudio) return;
+    if (_videoController == null || !_videoController!.value.isInitialized) return;
+    if (_audioPlayer.playing || _isSettingUp) return;
+
     final value = _videoController!.value;
     
     PlaybackState newState;
-    if (!value.isInitialized) {
-      newState = PlaybackState.loading;
-    } else if (value.isCompleted) {
+    if (value.isCompleted) {
       newState = PlaybackState.completed;
       if (_state != PlaybackState.completed) {
         _state = newState;
@@ -142,15 +210,6 @@ class PlaybackService {
     _positionController.add(value.position);
     _durationController.add(value.duration);
     _bufferedController.add(value.buffered.isNotEmpty ? value.buffered.last.end : Duration.zero);
-
-    final job = _activeJob;
-    if (job != null && _state == PlaybackState.playing) {
-      final now = DateTime.now();
-      if (now.difference(_lastPositionSave).inSeconds >= 5) {
-        _lastPositionSave = now;
-        _saveProgress();
-      }
-    }
   }
 
   void _handlePlaybackCompletion() {
@@ -184,9 +243,8 @@ class PlaybackService {
     }
     _loopModeController.add(_loopMode);
     
-    if (_activeJob?.isAudio ?? true) {
-      _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
-    } else {
+    _audioPlayer.setLoopMode(_loopMode == LoopModeState.one ? LoopMode.one : LoopMode.off);
+    if (!(_activeJob?.isAudio ?? true)) {
       _videoController?.setLooping(_loopMode == LoopModeState.one);
     }
   }
@@ -213,6 +271,7 @@ class PlaybackService {
   Future<void> play(VideoJob job) async {
     if (job.localPath == null) return;
     
+    _isSettingUp = true;
     _state = PlaybackState.loading;
     _stateController.add(_state);
     
@@ -221,10 +280,11 @@ class PlaybackService {
     await _audioPlayer.stop();
     
     if (_videoController != null) {
-      _videoController!.removeListener(_videoListener);
-      await _videoController!.pause();
-      await _videoController!.dispose();
+      final oldController = _videoController!;
       _videoController = null;
+      oldController.removeListener(_videoListener);
+      await oldController.pause();
+      await oldController.dispose();
     }
     cancelSleepTimer();
     
@@ -266,7 +326,9 @@ class PlaybackService {
         }
 
         _audioPlayer.play();
+        _isSettingUp = false;
       } catch (_) {
+        _isSettingUp = false;
         _state = PlaybackState.idle;
         _stateController.add(_state);
       }
@@ -275,13 +337,20 @@ class PlaybackService {
         _state = PlaybackState.loading;
         _stateController.add(_state);
         
+        // 1. Initialize Video Player Controller (Foreground with Standard volume)
         _videoController = VideoPlayerController.file(File(job.localPath!));
         await _videoController!.initialize();
+        await _videoController!.setVolume(1.0); // Full audio volume in foreground
         _videoController!.addListener(_videoListener);
         _videoController!.setLooping(_loopMode == LoopModeState.one);
         
+        // 2. Clear any active audio player source
+        await _audioPlayer.stop();
+
+        // 3. Handle seek to last position
         if (job.lastPositionSeconds > 0 && job.watchedPercent < 0.95) {
-          await _videoController!.seekTo(Duration(seconds: job.lastPositionSeconds));
+          final targetPos = Duration(seconds: job.lastPositionSeconds);
+          await _videoController!.seekTo(targetPos);
         } else {
           await _videoController!.seekTo(Duration.zero);
           final updatedJob = job.copyWith(
@@ -300,7 +369,11 @@ class PlaybackService {
         }
         
         _videoController!.play();
+        _isSettingUp = false;
+        _state = PlaybackState.playing;
+        _stateController.add(_state);
       } catch (_) {
+        _isSettingUp = false;
         _state = PlaybackState.idle;
         _stateController.add(_state);
       }
@@ -312,7 +385,11 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       await _audioPlayer.pause();
     } else {
-      await _videoController?.pause();
+      if (_audioPlayer.playing) {
+        await _audioPlayer.pause();
+      } else {
+        await _videoController?.pause();
+      }
     }
   }
 
@@ -320,7 +397,9 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       await _audioPlayer.play();
     } else {
-      await _videoController?.play();
+      if (_videoController != null) {
+        await _videoController!.play();
+      }
     }
   }
 
@@ -330,10 +409,11 @@ class PlaybackService {
     await _audioPlayer.stop();
     
     if (_videoController != null) {
-      _videoController!.removeListener(_videoListener);
-      await _videoController!.pause();
-      await _videoController!.dispose();
+      final oldController = _videoController!;
       _videoController = null;
+      oldController.removeListener(_videoListener);
+      await oldController.pause();
+      await oldController.dispose();
     }
     
     _activeJob = null;
@@ -346,7 +426,11 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       await _audioPlayer.seek(position);
     } else {
-      await _videoController?.seekTo(position);
+      if (_audioPlayer.playing) {
+        await _audioPlayer.seek(position);
+      } else {
+        await _videoController?.seekTo(position);
+      }
     }
   }
 
@@ -355,7 +439,11 @@ class PlaybackService {
     if (_activeJob?.isAudio ?? true) {
       await _audioPlayer.setSpeed(clamped);
     } else {
-      await _videoController?.setPlaybackSpeed(clamped);
+      if (_audioPlayer.playing) {
+        await _audioPlayer.setSpeed(clamped);
+      } else {
+        await _videoController?.setPlaybackSpeed(clamped);
+      }
     }
   }
 
@@ -388,6 +476,7 @@ class PlaybackService {
   }
 
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _audioPlayer.dispose();
     if (_videoController != null) {
       _videoController!.dispose();
