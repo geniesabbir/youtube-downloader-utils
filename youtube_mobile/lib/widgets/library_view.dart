@@ -177,29 +177,31 @@ class _LibraryViewState extends State<LibraryView> {
                   Row(
                     children: [
                       Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                          decoration: BoxDecoration(
-                            color: const Color(0xff121820),
-                            borderRadius: BorderRadius.circular(12.0),
-                            border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-                          ),
-                          child: TextField(
-                            controller: _searchController,
-                            style: const TextStyle(color: Colors.white, fontSize: 13.0),
-                            onChanged: (val) {
-                              setState(() {
-                                _searchQuery = val;
-                              });
-                            },
-                            decoration: InputDecoration(
-                              icon: const Icon(Icons.search, color: Color(0xff00d2ff), size: 18),
-                              hintText: "Search title, author, tags...",
-                              hintStyle: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 12.5,
-                              ),
-                              border: InputBorder.none,
+                        child: TextField(
+                          controller: _searchController,
+                          style: const TextStyle(color: Colors.white, fontSize: 13.0),
+                          onChanged: (val) {
+                            setState(() {
+                              _searchQuery = val;
+                            });
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.search, color: Color(0xff00d2ff), size: 18),
+                            hintText: "Search title, author, tags...",
+                            hintStyle: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 12.5,
+                            ),
+                            filled: true,
+                            fillColor: const Color(0xff121820),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.0),
+                              borderSide: BorderSide(color: Colors.blueGrey.withOpacity(0.2)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12.0),
+                              borderSide: const BorderSide(color: AppColors.cyan),
                             ),
                           ),
                         ),

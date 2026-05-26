@@ -1351,30 +1351,32 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
         Row(
           children: [
             Expanded(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xff121820),
-                  borderRadius: BorderRadius.circular(12.0),
-                  border: Border.all(color: Colors.blueGrey.withOpacity(0.2)),
-                ),
-                child: TextField(
-                  controller: _noteInputController,
-                  style: const TextStyle(color: Colors.white, fontSize: 12.5),
-                  decoration: InputDecoration(
-                    prefixIcon: Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                      decoration: BoxDecoration(color: AppColors.mint.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                      child: Text(currentTimeStr, style: const TextStyle(color: AppColors.mint, fontSize: 10.5, fontFamily: "monospace", fontWeight: FontWeight.bold)),
-                    ),
-                    prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                    hintText: "Add markdown note at position...",
-                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
-                    border: InputBorder.none,
+              child: TextField(
+                controller: _noteInputController,
+                style: const TextStyle(color: Colors.white, fontSize: 12.5),
+                decoration: InputDecoration(
+                  prefixIcon: Container(
+                    margin: const EdgeInsets.only(left: 12, right: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(color: AppColors.mint.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
+                    child: Text(currentTimeStr, style: const TextStyle(color: AppColors.mint, fontSize: 10.5, fontFamily: "monospace", fontWeight: FontWeight.bold)),
                   ),
-                  onSubmitted: (_) => _addNewNoteAtCurrentTime(),
+                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                  hintText: "Add markdown note...",
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                  filled: true,
+                  fillColor: const Color(0xff121820),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12.0),
+                    borderSide: BorderSide(color: Colors.blueGrey.withOpacity(0.2)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12.0),
+                    borderSide: const BorderSide(color: AppColors.mint),
+                  ),
                 ),
+                onSubmitted: (_) => _addNewNoteAtCurrentTime(),
               ),
             ),
             const SizedBox(width: 8),
