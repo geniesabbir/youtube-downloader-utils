@@ -307,16 +307,61 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
             // ── 1. Top Pinned Media Player Block ─────────────────────────────
             _buildPlayerBlock(),
 
-            // ── 2. Scrollable Detail, Comments & Workspace Area ──────────────
+            // ── 2. Coordinated Scrolling Detail & Workspace Area ─────────────
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDetailsHeader(),
-                    const Divider(color: Colors.white10, height: 1, thickness: 1),
-                    _buildCognitiveWorkspace(),
-                  ],
+              child: NestedScrollView(
+                headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
+                  return <Widget>[
+                    // Details Header
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildDetailsHeader(),
+                          const Divider(color: Colors.white10, height: 1, thickness: 1),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.psychology, color: AppColors.cyan, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  "COGNITIVE STUDY WORKSPACE",
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.9),
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Pinned Tab Bar
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _SliverTabBarDelegate(
+                        child: _buildTabBarSelectors(),
+                      ),
+                    ),
+                  ];
+                },
+                body: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: _loadingTranscript
+                      ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+                      : TabBarView(
+                          controller: _tabController,
+                          children: [
+                            _buildTranscriptTab(),
+                            _buildSearchTab(),
+                            _buildNotesTab(),
+                            _buildSummaryTab(),
+                          ],
+                        ),
                 ),
               ),
             ),
@@ -528,53 +573,6 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
 
 
 
-
-  Widget _buildCognitiveWorkspace() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: Row(
-            children: [
-              const Icon(Icons.psychology, color: AppColors.cyan, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                "COGNITIVE STUDY WORKSPACE",
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 12.0,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // The Tab Bar Selectors
-        _buildTabBarSelectors(),
-        // Bounded Study View Panel
-        SizedBox(
-          height: 420.0,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: _loadingTranscript
-                ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
-                : TabBarView(
-                    controller: _tabController,
-                    children: [
-                      _buildTranscriptTab(),
-                      _buildSearchTab(),
-                      _buildNotesTab(),
-                      _buildSummaryTab(),
-                    ],
-                  ),
-          ),
-        ),
-        const SizedBox(height: 32),
-      ],
-    );
-  }
 
 
 
@@ -1062,5 +1060,30 @@ class _VideoPlayerViewState extends State<VideoPlayerView> with TickerProviderSt
 
   String _formatDateTime(DateTime dt) {
     return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+  }
+}
+
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+
+  _SliverTabBarDelegate({required this.child});
+
+  @override
+  double get minExtent => 72.0;
+
+  @override
+  double get maxExtent => 72.0;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: const Color(0xff090c10), // solid background matching details header
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _SliverTabBarDelegate oldDelegate) {
+    return oldDelegate.child != child;
   }
 }
