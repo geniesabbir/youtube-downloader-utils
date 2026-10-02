@@ -15,7 +15,8 @@ Footer {
 
 #workspace {
     padding: 1 2;
-    height: auto;
+    height: 1fr;
+    overflow-y: auto;
 }
 
 .app-card,
@@ -104,6 +105,11 @@ Footer {
     height: auto;
 }
 
+#sources-hint {
+    color: #64748b;
+    margin-bottom: 1;
+}
+
 Input {
     background: #0f141b;
     color: #f8fafc;
@@ -188,7 +194,7 @@ Button {
 
 .video-actions Button {
     margin-right: 1;
-    min-width: 20;
+    min-width: 16;
     height: 3;
 }
 
@@ -201,4 +207,36 @@ ProgressBar {
 
 ProgressBar > .progress--bar {
     background: #3b82f6;
+}
+
+.video-card.members-only {
+    border: round #d97706;
+}
+
+.video-card.members-only .video-status {
+    color: #fbbf24;
+}
+
+.video-card.members-only .video-kicker {
+    color: #fbbf24;
+}
+
+.trim-container {
+    height: auto;
+    align: left middle;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.trim-label {
+    width: 24;
+    height: 3;
+    content-align: left middle;
+    color: #94a3b8;
+}
+
+.trim-input {
+    width: 20;
+    margin-right: 1;
+    height: 3;
 }

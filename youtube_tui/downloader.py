@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
 import os
 import shutil
 from typing import Any
@@ -8,6 +10,7 @@ from typing import Any
 import yt_dlp
 
 DEFAULT_COOKIE_EXPORT_PATH = os.path.expanduser("~/.cache/void-archive/youtube.cookies.txt")
+DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
 AUTO_BROWSER_SPECS = (
     "brave",
     "chrome",
@@ -19,6 +22,7 @@ AUTO_BROWSER_SPECS = (
     "safari",
 )
 AUTH_COOKIE_NAMES = {
+    # YouTube / Google
     "SID",
     "HSID",
     "SSID",
@@ -29,7 +33,47 @@ AUTH_COOKIE_NAMES = {
     "__Secure-1PAPISID",
     "__Secure-3PAPISID",
     "LOGIN_INFO",
+    # Facebook
+    "c_user",
+    "xs",
+    "datr",
+    "sb",
+    # Instagram
+    "sessionid",
+    "ds_user_id",
+    # Twitter / X
+    "auth_token",
+    "ct0",
+    # TikTok
+    "sessionid",
+    "sid_guard",
+    "sessionid_ss",
+    # Reddit
+    "reddit_session",
+    # Twitch
+    "auth-token",
+    # Dailymotion
+    "ts",
+    "sid",
+    # Vimeo
+    "vimeo",
 }
+
+
+class QuietLogger:
+    """Redirect yt-dlp internal logging so it does not interfere with Textual TUI."""
+
+    def debug(self, msg: str) -> None:
+        pass
+
+    def info(self, msg: str) -> None:
+        pass
+
+    def warning(self, msg: str) -> None:
+        pass
+
+    def error(self, msg: str) -> None:
+        pass
 
 
 class YouTubeDownloader:
@@ -48,20 +92,72 @@ class YouTubeDownloader:
         elif payload["status"] == "finished":
             self.progress_callback({"status": "processing", "action": "finished"})
 
+    @staticmethod
+    def _detect_platform(info: dict[str, Any], url: str) -> str:
+        key = info.get("extractor_key") or info.get("extractor") or ""
+        if key and key.lower() not in {"generic", "url"}:
+            return key.capitalize()
+
+        from urllib.parse import urlparse
+
+        domain = urlparse(url).netloc.lower()
+        for prefix in ("www.", "m.", "mobile."):
+            if domain.startswith(prefix):
+                domain = domain[len(prefix) :]
+        parts = domain.split(".")
+        return parts[0].capitalize() if parts and parts[0] else "Media"
+
+    @staticmethod
+    def _is_single_video_target(url: str) -> bool:
+        lowered = url.lower()
+        if any(token in lowered for token in ["/playlist", "/channel/", "/user/", "/c/@", "list="]) and not (
+            "/watch" in lowered or "youtu.be/" in lowered or "/shorts/" in lowered
+        ):
+            return False
+        if any(
+            token in lowered
+            for token in [
+                "dailymotion.com/playlist",
+                "vimeo.com/channels",
+                "vimeo.com/album",
+                "tiktok.com/@",
+                "tiktok.com/tag/",
+            ]
+        ) and not ("/video/" in lowered or "/reel/" in lowered or "/shorts/" in lowered):
+            return False
+        return True
+
     def discover(self, raw_url: str) -> list[dict[str, Any]]:
+        is_single = self._is_single_video_target(raw_url)
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "skip_download": True,
-            "noplaylist": False,
+            "windowsfilenames": True,
+            "noplaylist": is_single,
+            "extract_flat": "in_playlist",
+            "logger": QuietLogger(),
         }
         ydl_opts.update(self._auth_options())
 
+        info = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(raw_url, download=False, process=False)
+                info = ydl.extract_info(raw_url, download=False, process=True)
         except Exception as exc:
-            return [self._build_error_result(raw_url, self._humanize_error(str(exc)))]
+            # If discovery failed with stale/invalid cookies, retry once without auth for public videos
+            if "cookiefile" in ydl_opts or "cookiesfrombrowser" in ydl_opts:
+                retry_opts = dict(ydl_opts)
+                retry_opts.pop("cookiefile", None)
+                retry_opts.pop("cookiesfrombrowser", None)
+                try:
+                    with yt_dlp.YoutubeDL(retry_opts) as retry_ydl:
+                        info = retry_ydl.extract_info(raw_url, download=False, process=True)
+                except Exception:
+                    return [self._build_error_result(raw_url, self._humanize_error(str(exc)))]
+            else:
+                return [self._build_error_result(raw_url, self._humanize_error(str(exc)))]
 
         if not info:
             return [self._build_error_result(raw_url, "No metadata returned.")]
@@ -77,24 +173,61 @@ class YouTubeDownloader:
 
         return [self._build_result(self._normalize_entry(info), raw_url)]
 
-    def download(self, url: str, quality: str = "video:best", output_path: str = "downloads") -> tuple[bool, str]:
-        os.makedirs(output_path, exist_ok=True)
+    def download(
+        self,
+        url: str,
+        quality: str = "video:best",
+        output_path: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> tuple[bool, str]:
+        target_dir = output_path or self.default_download_path()
+        os.makedirs(target_dir, exist_ok=True)
         ffmpeg_path = shutil.which("ffmpeg")
+
+        start_secs = self._parse_time_to_seconds(start_time)
+        end_secs = self._parse_time_to_seconds(end_time)
+
+        if start_time and start_time.strip() and start_secs is None:
+            return False, "Invalid start time format. Use HH:MM:SS, MM:SS, or seconds."
+        if end_time and end_time.strip() and end_secs is None:
+            return False, "Invalid end time format. Use HH:MM:SS, MM:SS, or seconds."
+
+        if start_secs is not None and end_secs is not None and end_secs <= start_secs:
+            return False, "End time must be greater than start time for trimming."
+
+        trim_suffix = ""
+        if start_secs is not None or end_secs is not None:
+            clean_start = (start_time or "0").strip().replace(":", "-")
+            clean_end = (end_time or "end").strip().replace(":", "-")
+            trim_suffix = f" [Trim {clean_start} to {clean_end}]"
 
         ydl_opts = {
             "format": "bestvideo*+bestaudio/best",
-            "outtmpl": os.path.join(output_path, "%(title)s.%(ext)s"),
+            "outtmpl": os.path.join(target_dir, f"%(title)s{trim_suffix}.%(ext)s"),
             "progress_hooks": [self.progress_hook],
             "postprocessor_hooks": [self.postprocessor_hook],
             "merge_output_format": "mp4",
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "nocheckcertificate": True,
             "ignoreerrors": False,
             "no_color": True,
             "prefer_ffmpeg": True,
+            "windowsfilenames": True,
+            "noplaylist": True,
+            "logger": QuietLogger(),
         }
         ydl_opts.update(self._auth_options())
+
+        if start_secs is not None or end_secs is not None:
+            from yt_dlp.utils import download_range_func
+
+            actual_start = start_secs if start_secs is not None else 0.0
+            actual_end = end_secs if end_secs is not None else float("inf")
+            ydl_opts["download_ranges"] = download_range_func(None, [(actual_start, actual_end)])
+            ydl_opts["force_keyframes_at_cuts"] = True
 
         if ffmpeg_path:
             ydl_opts["ffmpeg_location"] = ffmpeg_path
@@ -103,6 +236,7 @@ class YouTubeDownloader:
 
         if download_type == "audio":
             ydl_opts["format"] = "bestaudio/best"
+            ydl_opts.pop("merge_output_format", None)
             ydl_opts["postprocessors"] = [
                 {
                     "key": "FFmpegExtractAudio",
@@ -113,23 +247,32 @@ class YouTubeDownloader:
         else:
             ydl_opts["format"] = self._video_format_for_resolution(resolution)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
                 return True, "Success"
-            except Exception as exc:
-                return False, self._humanize_error(str(exc))
+        except Exception as exc:
+            # Fallback retry without auth if cookies were rejected or invalid
+            if "cookiefile" in ydl_opts or "cookiesfrombrowser" in ydl_opts:
+                retry_opts = dict(ydl_opts)
+                retry_opts.pop("cookiefile", None)
+                retry_opts.pop("cookiesfrombrowser", None)
+                try:
+                    with yt_dlp.YoutubeDL(retry_opts) as retry_ydl:
+                        retry_ydl.download([url])
+                        return True, "Success (downloaded using public access; cached cookies were rejected)"
+                except Exception:
+                    pass
+            return False, self._humanize_error(str(exc))
 
     def _build_result(self, info: dict[str, Any], fallback_url: str) -> dict[str, Any]:
-        target_url = (
-            info.get("webpage_url")
-            or info.get("url")
-            or fallback_url
-        )
-        author = info.get("uploader") or info.get("channel") or "Unknown"
+        target_url = info.get("webpage_url") or info.get("url") or fallback_url
+        author = info.get("uploader") or info.get("channel") or info.get("creator") or info.get("uploader_id") or "Unknown"
         duration = info.get("duration_string")
         if not duration and info.get("duration"):
             duration = self._format_duration(info["duration"])
+
+        platform = self._detect_platform(info, fallback_url)
 
         return {
             "source_url": fallback_url,
@@ -137,6 +280,7 @@ class YouTubeDownloader:
             "title": info.get("title", "Unknown"),
             "author": author,
             "duration": duration or "N/A",
+            "platform": platform,
         }
 
     def _normalize_entry(self, info: dict[str, Any]) -> dict[str, Any]:
@@ -151,6 +295,26 @@ class YouTubeDownloader:
         resolution = resolution or "best"
         return download_type, resolution
 
+    def _parse_time_to_seconds(self, time_str: str | None) -> float | None:
+        if not time_str:
+            return None
+        time_str = time_str.strip()
+        if not time_str:
+            return None
+        try:
+            return float(time_str)
+        except ValueError:
+            pass
+        parts = time_str.split(":")
+        try:
+            if len(parts) == 2:
+                return int(parts[0]) * 60 + float(parts[1])
+            elif len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+        except ValueError:
+            pass
+        return None
+
     def _video_format_for_resolution(self, resolution: str) -> str:
         if resolution == "best":
             return "bestvideo*+bestaudio/best"
@@ -162,12 +326,14 @@ class YouTubeDownloader:
         return "bestvideo*+bestaudio/best"
 
     def _build_error_result(self, raw_url: str, error: str) -> dict[str, Any]:
+        platform = self._detect_platform({}, raw_url)
         return {
             "source_url": raw_url,
             "target_url": raw_url,
             "title": "Discovery failed",
             "author": "Unknown",
             "duration": "N/A",
+            "platform": platform,
             "error": error,
         }
 
@@ -193,6 +359,8 @@ class YouTubeDownloader:
 
     def _humanize_error(self, error: str) -> str:
         lowered = error.lower()
+        if "members-only content" in lowered or "join this channel" in lowered:
+            return "This video is members-only. To download it, please export signed-in cookies using the AUTH panel."
         if "sign in to confirm you're not a bot" in lowered:
             return (
                 "YouTube rejected the request and now requires authenticated cookies. "
@@ -209,6 +377,13 @@ class YouTubeDownloader:
                 "yt-dlp could not decrypt this browser's cookies on this machine. "
                 "Export a Netscape-format cookies.txt file from the browser and use that instead."
             )
+        if "http error 403" in lowered or "403: forbidden" in lowered or "access denied" in lowered:
+            return (
+                "YouTube returned 403 Forbidden. This typically happens with outdated extractors or expired account cookies. "
+                "Try updating dependencies with ./run.sh --update or refreshing your cookie session."
+            )
+        if "ffmpeg exited with code" in lowered:
+            return f"FFmpeg processing failed ({error}). Ensure ffmpeg is installed and trimming range is valid."
         return error
 
     def _parse_browser_spec(self, spec: str) -> tuple[str, ...]:
@@ -266,6 +441,10 @@ class YouTubeDownloader:
         return DEFAULT_COOKIE_EXPORT_PATH
 
     @classmethod
+    def default_download_path(cls) -> str:
+        return DEFAULT_DOWNLOAD_DIR
+
+    @classmethod
     def _cookie_file_status(cls, cookie_file: str, managed: bool = False) -> dict[str, str | bool]:
         if not os.path.exists(cookie_file):
             return {
@@ -284,18 +463,21 @@ class YouTubeDownloader:
                 "label": "Sign-in not detected",
                 "detail": (
                     f"{prefix}: {cookie_file}\n"
-                    "The export completed, but no YouTube/Google sign-in cookies were found."
+                    "The export completed, but no supported platform sign-in cookies were found."
                 ),
                 "needs_refresh": True,
                 "refresh_reason": "unauthenticated",
             }
+
+        platforms = sorted(session_state.get("platforms") or [])
+        platforms_text = f"Signed-in: {', '.join(platforms)}" if platforms else "Session active"
 
         expiry = session_state["expiry"]
         if expiry is None:
             return {
                 "enabled": True,
                 "label": "Cookies enabled",
-                "detail": f"{prefix}: {cookie_file}\nSigned-in session detected. Expiry: unknown",
+                "detail": f"{prefix}: {cookie_file}\n{platforms_text}. Expiry: unknown",
                 "needs_refresh": False,
                 "refresh_reason": "",
             }
@@ -308,7 +490,7 @@ class YouTubeDownloader:
             return {
                 "enabled": False,
                 "label": "Cookies expired",
-                "detail": f"{prefix}: {cookie_file}\nSigned-in session expired: {expires_local}",
+                "detail": f"{prefix}: {cookie_file}\n{platforms_text} (expired: {expires_local})",
                 "needs_refresh": True,
                 "refresh_reason": "expired",
             }
@@ -318,7 +500,7 @@ class YouTubeDownloader:
             return {
                 "enabled": True,
                 "label": "Cookies expiring soon",
-                "detail": f"{prefix}: {cookie_file}\nSigned-in session expires: {expires_local}",
+                "detail": f"{prefix}: {cookie_file}\n{platforms_text} (expires: {expires_local})",
                 "needs_refresh": True,
                 "refresh_reason": "expiring_soon",
             }
@@ -326,15 +508,16 @@ class YouTubeDownloader:
         return {
             "enabled": True,
             "label": "Cookies enabled",
-            "detail": f"{prefix}: {cookie_file}\nSigned-in session expires: {expires_local}",
+            "detail": f"{prefix}: {cookie_file}\n{platforms_text} (expires: {expires_local})",
             "needs_refresh": False,
             "refresh_reason": "",
         }
 
     @classmethod
-    def _cookie_session_state(cls, cookie_file: str) -> dict[str, bool | int | None]:
+    def _cookie_session_state(cls, cookie_file: str) -> dict[str, Any]:
         expiries: list[int] = []
         has_auth_cookies = False
+        detected_platforms: set[str] = set()
 
         with open(cookie_file, encoding="utf-8", errors="ignore") as handle:
             for raw_line in handle:
@@ -345,12 +528,29 @@ class YouTubeDownloader:
                 if len(parts) < 7:
                     continue
                 domain = parts[0].lower()
-                if "youtube.com" not in domain and "google.com" not in domain:
-                    continue
                 name = parts[5].strip()
                 if name not in AUTH_COOKIE_NAMES:
                     continue
                 has_auth_cookies = True
+
+                if "youtube.com" in domain or "google.com" in domain:
+                    detected_platforms.add("YouTube")
+                elif "facebook.com" in domain:
+                    detected_platforms.add("Facebook")
+                elif "instagram.com" in domain:
+                    detected_platforms.add("Instagram")
+                elif "twitter.com" in domain or "x.com" in domain:
+                    detected_platforms.add("X/Twitter")
+                elif "tiktok.com" in domain:
+                    detected_platforms.add("TikTok")
+                elif "reddit.com" in domain:
+                    detected_platforms.add("Reddit")
+                elif "dailymotion.com" in domain:
+                    detected_platforms.add("Dailymotion")
+                elif "twitch.tv" in domain:
+                    detected_platforms.add("Twitch")
+                elif "vimeo.com" in domain:
+                    detected_platforms.add("Vimeo")
                 expiry_raw = parts[4].strip()
                 if not expiry_raw.isdigit():
                     continue
@@ -361,6 +561,7 @@ class YouTubeDownloader:
         return {
             "has_auth_cookies": has_auth_cookies,
             "expiry": min(expiries) if expiries else None,
+            "platforms": detected_platforms,
         }
 
     @classmethod
@@ -384,7 +585,9 @@ class YouTubeDownloader:
 
         managed_cookie_file = self.default_cookie_export_path()
         if os.path.exists(managed_cookie_file):
-            return managed_cookie_file
+            status = self._cookie_file_status(managed_cookie_file, managed=True)
+            if status.get("enabled"):
+                return managed_cookie_file
 
         return None
 
@@ -395,18 +598,23 @@ class YouTubeDownloader:
         ydl_opts = {
             "quiet": True,
             "no_warnings": True,
+            "noprogress": True,
             "skip_download": True,
             "cookiefile": target_path,
             "cookiesfrombrowser": self._parse_browser_spec(browser_spec),
         }
 
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.save_cookies()
+            null_io = io.StringIO()
+            with contextlib.redirect_stdout(null_io), contextlib.redirect_stderr(null_io):
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.save_cookies()
             session_state = self._cookie_session_state(target_path)
             if not session_state["has_auth_cookies"]:
-                return False, "Export completed, but no signed-in YouTube/Google cookies were found.", target_path
-            return True, f"Cookies exported to {target_path}", target_path
+                return False, "Export completed, but no supported platform sign-in cookies were found.", target_path
+            platforms = sorted(session_state.get("platforms") or [])
+            details = f" ({', '.join(platforms)})" if platforms else ""
+            return True, f"Cookies exported to {target_path}{details}", target_path
         except Exception as exc:
             return False, self._humanize_error(str(exc)), target_path
 
@@ -433,3 +641,7 @@ class YouTubeDownloader:
         if hours:
             return f"{hours}:{minutes:02d}:{secs:02d}"
         return f"{minutes}:{secs:02d}"
+
+
+# Backward-compatible alias
+VideoDownloader = YouTubeDownloader

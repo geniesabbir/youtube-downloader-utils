@@ -1,22 +1,27 @@
 # VOID-ARCHIVE TUI
 
-Terminal UI for discovering and downloading YouTube videos with `yt-dlp` and `Textual`.
+Universal Terminal UI for discovering and downloading videos and audio from YouTube, Facebook, Dailymotion, TikTok, Vimeo, X/Twitter, Instagram, Reddit, and 1,800+ platforms with `yt-dlp` and `Textual`.
 
 This version is built around isolated video jobs:
 
-- One input can contain one or many URLs.
+- One input can contain one or many URLs across any supported platform.
 - Discovery runs per source URL.
-- Each discovered video gets its own controls.
+- Each discovered video gets its own controls and platform badge.
+- Optional per-video start and end timestamp trimming.
 - Discovery retry and download retry are handled per video card.
 - Download progress is isolated per video instead of sharing one global progress bar.
 
 ## Features
 
-- Batch URL input using spaces or commas as separators
-- Discovery of single videos and multi-entry sources
+- Batch URL input across YouTube, Facebook, Dailymotion, TikTok, Vimeo, X/Twitter, Instagram, Twitch, and all `yt-dlp` supported extractors
+- Automatic platform detection badge for every queued video
+- Discovery of single videos and multi-entry sources/playlists
+- Per-video timestamp range trimming (e.g., `00:30` to `02:15` or seconds)
 - Per-video download as MP4 (defaults to best resolution)
 - Per-video audio download as MP3
-- Automatic YouTube signature (`n` challenge decryption) decryption support using `yt-dlp-ejs` and local JS runtimes
+- Automatic fallback to public video access if cached cookies are invalid/expired
+- Multi-platform cookie session management (YouTube, Facebook, Instagram, Twitter/X, TikTok, Reddit, etc.)
+- Automatic YouTube signature decryption support using `yt-dlp-ejs` and local JS runtimes
 - Retry discovery for failed jobs
 - Retry download for failed jobs
 - Individual progress bars and statuses for each video

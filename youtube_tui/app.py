@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Footer, Header, Input, Label, ProgressBar, Static
 
 from downloader import YouTubeDownloader
@@ -21,6 +21,7 @@ class VideoJobState:
     title: str = "Pending discovery"
     author: str = "Unknown"
     duration: str = "N/A"
+    platform: str = "Media"
     status: str = "Queued for discovery"
     discovered: bool = False
     discover_failed: bool = False
@@ -28,6 +29,9 @@ class VideoJobState:
     downloading: bool = False
     last_download_mode: str | None = None
     progress: float = 0.0
+    is_members_only: bool = False
+    trim_start: str | None = None
+    trim_end: str | None = None
 
 
 class VideoCard(Static):
@@ -47,6 +51,10 @@ class VideoCard(Static):
             show_percentage=True,
             id=f"progress-{self.state.job_id}",
         )
+        with Horizontal(classes="trim-container"):
+            yield Static("Trim Range (Optional):", classes="trim-label")
+            yield Input(placeholder="Start e.g. 00:30", id=f"trim-start-{self.state.job_id}", classes="trim-input")
+            yield Input(placeholder="End e.g. 02:15", id=f"trim-end-{self.state.job_id}", classes="trim-input")
         with Horizontal(classes="video-actions"):
             yield Button("Retry Discover", id=f"retry-discover-{self.state.job_id}", variant="warning")
             yield Button("Download Video", id=f"download-video-{self.state.job_id}", variant="success")
@@ -61,6 +69,22 @@ class VideoCard(Static):
         self.query_one(f"#title-{state.job_id}", Label).update(state.title)
         self.query_one(f"#meta-{state.job_id}", Static).update(self._meta_text())
         self.query_one(f"#status-{state.job_id}", Static).update(self._status_text())
+
+        if state.is_members_only:
+            self.add_class("members-only")
+        else:
+            self.remove_class("members-only")
+
+        trim_start = self.query_one(f"#trim-start-{state.job_id}", Input)
+        trim_end = self.query_one(f"#trim-end-{state.job_id}", Input)
+
+        if state.trim_start is not None and trim_start.value != state.trim_start:
+            trim_start.value = state.trim_start
+        if state.trim_end is not None and trim_end.value != state.trim_end:
+            trim_end.value = state.trim_end
+
+        trim_start.disabled = not state.discovered or state.downloading
+        trim_end.disabled = not state.discovered or state.downloading
 
         progress = self.query_one(f"#progress-{state.job_id}", ProgressBar)
         progress.total = 100
@@ -77,11 +101,9 @@ class VideoCard(Static):
         download_audio.disabled = not download_ready
         retry_download.disabled = not state.download_failed or state.downloading
 
-
-
     def _meta_text(self) -> str:
         return (
-            f"Channel: [bold]{self.state.author}[/bold]\n"
+            f"Platform: [bold cyan]{self.state.platform}[/bold cyan]  •  Creator: [bold]{self.state.author}[/bold]\n"
             f"Duration: [bold]{self.state.duration}[/bold]\n"
             f"URL: [dim]{self.state.target_url}[/dim]"
         )
@@ -93,7 +115,7 @@ class VideoCard(Static):
 class YouTubeTUI(App):
     CSS_PATH = "style.tcss"
     TITLE = "VOID-ARCHIVE v3.0"
-    SUB_TITLE = "Batch Discovery + Per-Video Control"
+    SUB_TITLE = "Universal Media Downloader"
 
     def __init__(self) -> None:
         super().__init__()
@@ -103,13 +125,13 @@ class YouTubeTUI(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(id="workspace"):
+        with VerticalScroll(id="workspace"):
             with Horizontal(id="topbar", classes="app-card"):
                 with Vertical(id="title-block"):
                     yield Static("VOID ARCHIVE", classes="eyebrow")
-                    yield Label("Batch discovery", id="hero-title")
+                    yield Label("Universal Media Downloader", id="hero-title")
                     yield Static(
-                        "Authenticate once, then analyze and download per video.",
+                        "Download from YouTube, Facebook, Dailymotion, TikTok, Vimeo, X/Twitter, Instagram & 1,800+ sites.",
                         id="hero-copy",
                     )
                 with Vertical(id="status-block"):
@@ -131,9 +153,13 @@ class YouTubeTUI(App):
             with Vertical(id="input-panel", classes="app-card"):
                 yield Static("DISCOVERY", classes="eyebrow")
                 yield Label("Queue URLs", classes="section-title")
+                yield Static(
+                    "Supported: YouTube, Facebook, Dailymotion, TikTok, Vimeo, X/Twitter, Instagram, Reddit, Twitch & 1,800+ sites.",
+                    id="sources-hint",
+                )
                 with Horizontal(id="discover-actions"):
                     yield Input(
-                        placeholder="https://youtu.be/... , https://youtube.com/watch?v=...",
+                        placeholder="Paste URLs (YouTube, Facebook, Dailymotion, TikTok, Vimeo, etc.)...",
                         id="url-input",
                     )
                     yield Button("ANALYZE URLS", variant="success", id="analyze-btn")
@@ -156,18 +182,24 @@ class YouTubeTUI(App):
     def on_mount(self) -> None:
         self.refresh_auth_status()
 
+    @on(Input.Submitted, "#url-input")
+    async def handle_url_submitted(self) -> None:
+        await self.handle_analyze()
+
+    @on(Input.Submitted, "#browser-spec-input")
+    async def handle_browser_spec_submitted(self) -> None:
+        await self.handle_export_cookies()
+
     @on(Button.Pressed, "#analyze-btn")
     async def handle_analyze(self) -> None:
         self.refresh_auth_status()
         refresh_reason = self.auth_state.get("refresh_reason")
         if refresh_reason in {"expired", "missing", "unauthenticated"}:
-            self.query_one("#system-status", Static).update("AUTH REFRESH REQUIRED")
             self.notify(
-                "A valid signed-in cookie session is not available. Sign into YouTube in the browser and export again.",
-                severity="warning",
+                "Notice: Signed-in cookie session is inactive. Proceeding with public access.",
+                severity="information",
             )
-            return
-        if refresh_reason == "expiring_soon":
+        elif refresh_reason == "expiring_soon":
             self.notify("Cookies are expiring soon. Re-export is recommended.", severity="warning")
 
         raw_value = self.query_one("#url-input", Input).value
@@ -260,6 +292,7 @@ class YouTubeTUI(App):
             return
 
         job.discover_failed = False
+        job.is_members_only = False
         job.status = "Retrying discovery..."
         job.progress = 0
         self.refresh_card(job_id)
@@ -270,13 +303,20 @@ class YouTubeTUI(App):
         if not job or not job.discovered or job.downloading:
             return
 
+        card = self.query_one(f"#video-card-{job_id}", VideoCard)
+        start_input = card.query_one(f"#trim-start-{job_id}", Input).value.strip() or None
+        end_input = card.query_one(f"#trim-end-{job_id}", Input).value.strip() or None
+
+        job.trim_start = start_input
+        job.trim_end = end_input
+
         job.downloading = True
         job.download_failed = False
         job.last_download_mode = mode
         job.progress = 0
         job.status = "Preparing download..."
         self.refresh_card(job_id)
-        asyncio.create_task(self.download_job(job_id, mode))
+        asyncio.create_task(self.download_job(job_id, mode, start_input, end_input))
 
     async def discover_source(self, job_id: str, url: str) -> None:
         downloader = YouTubeDownloader()
@@ -305,15 +345,26 @@ class YouTubeTUI(App):
             await self.mount_card(extra_job)
 
         discovered_count = sum(1 for job in self.jobs.values() if job.discovered)
-        failed_count = sum(1 for job in self.jobs.values() if job.discover_failed)
-        self.update_summary(
-            f"Discovery complete: {discovered_count} ready, {failed_count} failed."
-        )
+        members_only_count = sum(1 for job in self.jobs.values() if job.is_members_only)
+        failed_count = sum(1 for job in self.jobs.values() if job.discover_failed and not job.is_members_only)
+
+        summary_parts = []
+        if discovered_count > 0:
+            summary_parts.append(f"{discovered_count} ready")
+        if members_only_count > 0:
+            summary_parts.append(f"{members_only_count} members-only")
+        if failed_count > 0:
+            summary_parts.append(f"{failed_count} failed")
+
+        if not summary_parts:
+            self.update_summary("Discovery complete.")
+        else:
+            self.update_summary(f"Discovery complete: {', '.join(summary_parts)}.")
 
         if self.all_discovery_tasks_finished():
             self.query_one("#analyze-btn", Button).disabled = False
 
-    async def download_job(self, job_id: str, mode: str) -> None:
+    async def download_job(self, job_id: str, mode: str, start_time: str | None = None, end_time: str | None = None) -> None:
         job = self.jobs.get(job_id)
         if not job:
             return
@@ -323,7 +374,15 @@ class YouTubeTUI(App):
 
         downloader = YouTubeDownloader(progress_callback=progress_callback)
         loop = asyncio.get_running_loop()
-        success, message = await loop.run_in_executor(None, downloader.download, job.target_url, mode)
+        success, message = await loop.run_in_executor(
+            None,
+            downloader.download,
+            job.target_url,
+            mode,
+            YouTubeDownloader.default_download_path(),
+            start_time,
+            end_time,
+        )
 
         updated_job = self.jobs.get(job_id)
         if not updated_job:
@@ -355,7 +414,17 @@ class YouTubeTUI(App):
                 job.progress = max(0.0, min((downloaded / total) * 100, 100.0))
             speed = payload.get("_speed_str", "N/A")
             eta = payload.get("_eta_str", "N/A")
-            job.status = f"Downloading at {speed} | ETA {eta}"
+
+            info = payload.get("info_dict", {})
+            vcodec = info.get("vcodec", "none")
+            acodec = info.get("acodec", "none")
+            comp = ""
+            if vcodec != "none" and acodec == "none":
+                comp = "video "
+            elif vcodec == "none" and acodec != "none":
+                comp = "audio "
+
+            job.status = f"Downloading {comp}at {speed} | ETA {eta}"
         elif status == "processing":
             action = payload.get("action", "Processing")
             if action == "merging":
@@ -368,14 +437,22 @@ class YouTubeTUI(App):
         self.refresh_card(job_id)
 
     def apply_discovery_result(self, job: VideoJobState, entry: dict) -> None:
+        job.platform = entry.get("platform", job.platform)
         if entry.get("error"):
-            job.title = entry.get("title", "Discovery failed")
+            error_msg = entry["error"]
+            if "members-only" in error_msg.lower():
+                job.title = "Members-only Video"
+                job.status = error_msg
+                job.is_members_only = True
+            else:
+                job.title = entry.get("title", "Discovery failed")
+                job.status = f"Discovery failed: {error_msg}"
+                job.is_members_only = False
             job.author = entry.get("author", "Unknown")
             job.duration = entry.get("duration", "N/A")
             job.target_url = entry.get("target_url", job.source_url)
             job.discovered = False
             job.discover_failed = True
-            job.status = f"Discovery failed: {entry['error']}"
             job.progress = 0
             return
 
@@ -392,10 +469,12 @@ class YouTubeTUI(App):
     def create_job(self, source_url: str, target_url: str, status: str = "Queued") -> VideoJobState:
         self.job_counter += 1
         job_id = str(self.job_counter)
+        detected_platform = YouTubeDownloader._detect_platform({}, target_url or source_url)
         job = VideoJobState(
             job_id=job_id,
             source_url=source_url,
             target_url=target_url,
+            platform=detected_platform,
             status=status,
         )
         self.jobs[job_id] = job
