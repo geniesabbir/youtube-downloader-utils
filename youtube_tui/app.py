@@ -253,7 +253,7 @@ class YouTubeTUI(App):
                     "EXPORT COMPLETE, SIGN-IN NOT DETECTED"
                 )
                 self.notify(
-                    "Cookies were exported, but no signed-in YouTube session was found. Log into YouTube in the browser and export again.",
+                    "Cookies were exported, but no active signed-in session was detected in the specified browser profile.",
                     severity="warning",
                 )
         else:
@@ -521,7 +521,7 @@ class YouTubeTUI(App):
 
     def _auth_status_text(self) -> str:
         state = self.auth_state
-        marker = "ONLINE" if state["enabled"] else "OFFLINE"
+        marker = "[bold green]ONLINE[/bold green]" if state["enabled"] else "[bold red]OFFLINE[/bold red]"
         return (
             f"AUTH {marker}\n"
             f"[bold]{state['label']}[/bold]\n"

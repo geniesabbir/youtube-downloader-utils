@@ -36,8 +36,6 @@ AUTH_COOKIE_NAMES = {
     # Facebook
     "c_user",
     "xs",
-    "datr",
-    "sb",
     # Instagram
     "sessionid",
     "ds_user_id",
@@ -57,6 +55,11 @@ AUTH_COOKIE_NAMES = {
     "sid",
     # Vimeo
     "vimeo",
+    # SoundCloud
+    "oauth_token",
+    # Bilibili
+    "SESSDATA",
+    "bili_jct",
 }
 
 
@@ -445,6 +448,33 @@ class YouTubeDownloader:
         return DEFAULT_DOWNLOAD_DIR
 
     @classmethod
+    def _detect_cookie_platform(cls, domain: str) -> str | None:
+        domain = domain.lower()
+        if "youtube.com" in domain or "google.com" in domain:
+            return "YouTube"
+        elif "facebook.com" in domain:
+            return "Facebook"
+        elif "instagram.com" in domain:
+            return "Instagram"
+        elif "twitter.com" in domain or "x.com" in domain:
+            return "Twitter/X"
+        elif "tiktok.com" in domain:
+            return "TikTok"
+        elif "reddit.com" in domain:
+            return "Reddit"
+        elif "dailymotion.com" in domain:
+            return "Dailymotion"
+        elif "twitch.tv" in domain:
+            return "Twitch"
+        elif "vimeo.com" in domain:
+            return "Vimeo"
+        elif "soundcloud.com" in domain:
+            return "SoundCloud"
+        elif "bilibili.com" in domain:
+            return "Bilibili"
+        return None
+
+    @classmethod
     def _cookie_file_status(cls, cookie_file: str, managed: bool = False) -> dict[str, str | bool]:
         if not os.path.exists(cookie_file):
             return {
@@ -472,12 +502,26 @@ class YouTubeDownloader:
         platforms = sorted(session_state.get("platforms") or [])
         platforms_text = f"Signed-in: {', '.join(platforms)}" if platforms else "Session active"
 
-        expiry = session_state["expiry"]
+        if session_state.get("is_expired"):
+            expiry = session_state.get("expiry")
+            expires_local = "unknown"
+            if expiry:
+                expires_at = dt.datetime.fromtimestamp(expiry, tz=dt.timezone.utc)
+                expires_local = expires_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+            return {
+                "enabled": False,
+                "label": "Cookies expired",
+                "detail": f"{prefix}: {cookie_file}\nExpired sign-in: {platforms_text} (expired: {expires_local})",
+                "needs_refresh": True,
+                "refresh_reason": "expired",
+            }
+
+        expiry = session_state.get("expiry")
         if expiry is None:
             return {
                 "enabled": True,
                 "label": "Cookies enabled",
-                "detail": f"{prefix}: {cookie_file}\n{platforms_text}. Expiry: unknown",
+                "detail": f"{prefix}: {cookie_file}\n{platforms_text}. Expiry: session / unknown",
                 "needs_refresh": False,
                 "refresh_reason": "",
             }
@@ -485,15 +529,6 @@ class YouTubeDownloader:
         now = dt.datetime.now(dt.timezone.utc)
         expires_at = dt.datetime.fromtimestamp(expiry, tz=dt.timezone.utc)
         expires_local = expires_at.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-
-        if expires_at <= now:
-            return {
-                "enabled": False,
-                "label": "Cookies expired",
-                "detail": f"{prefix}: {cookie_file}\n{platforms_text} (expired: {expires_local})",
-                "needs_refresh": True,
-                "refresh_reason": "expired",
-            }
 
         hours_left = (expires_at - now).total_seconds() / 3600
         if hours_left <= 24:
@@ -515,9 +550,11 @@ class YouTubeDownloader:
 
     @classmethod
     def _cookie_session_state(cls, cookie_file: str) -> dict[str, Any]:
-        expiries: list[int] = []
-        has_auth_cookies = False
-        detected_platforms: set[str] = set()
+        now = dt.datetime.now(dt.timezone.utc).timestamp()
+        active_platforms: set[str] = set()
+        expired_platforms: set[str] = set()
+        active_expiries: list[int] = []
+        expired_expiries: list[int] = []
 
         with open(cookie_file, encoding="utf-8", errors="ignore") as handle:
             for raw_line in handle:
@@ -531,37 +568,42 @@ class YouTubeDownloader:
                 name = parts[5].strip()
                 if name not in AUTH_COOKIE_NAMES:
                     continue
-                has_auth_cookies = True
 
-                if "youtube.com" in domain or "google.com" in domain:
-                    detected_platforms.add("YouTube")
-                elif "facebook.com" in domain:
-                    detected_platforms.add("Facebook")
-                elif "instagram.com" in domain:
-                    detected_platforms.add("Instagram")
-                elif "twitter.com" in domain or "x.com" in domain:
-                    detected_platforms.add("X/Twitter")
-                elif "tiktok.com" in domain:
-                    detected_platforms.add("TikTok")
-                elif "reddit.com" in domain:
-                    detected_platforms.add("Reddit")
-                elif "dailymotion.com" in domain:
-                    detected_platforms.add("Dailymotion")
-                elif "twitch.tv" in domain:
-                    detected_platforms.add("Twitch")
-                elif "vimeo.com" in domain:
-                    detected_platforms.add("Vimeo")
-                expiry_raw = parts[4].strip()
-                if not expiry_raw.isdigit():
+                platform = cls._detect_cookie_platform(domain)
+                if not platform:
                     continue
-                expiry = cls._normalize_cookie_expiry(int(expiry_raw))
-                if expiry > 0:
-                    expiries.append(expiry)
+
+                expiry_raw = parts[4].strip()
+                norm_expiry = 0
+                if expiry_raw.isdigit():
+                    norm_expiry = cls._normalize_cookie_expiry(int(expiry_raw))
+
+                if norm_expiry == 0 or norm_expiry > now:
+                    active_platforms.add(platform)
+                    if norm_expiry > 0:
+                        active_expiries.append(norm_expiry)
+                else:
+                    expired_platforms.add(platform)
+                    if norm_expiry > 0:
+                        expired_expiries.append(norm_expiry)
+
+        truly_expired = expired_platforms - active_platforms
+        has_active = len(active_platforms) > 0
+        has_any_auth = (len(active_platforms) + len(expired_platforms)) > 0
+
+        if active_expiries:
+            target_expiry = min(active_expiries)
+        elif expired_expiries:
+            target_expiry = max(expired_expiries)
+        else:
+            target_expiry = None
 
         return {
-            "has_auth_cookies": has_auth_cookies,
-            "expiry": min(expiries) if expiries else None,
-            "platforms": detected_platforms,
+            "has_auth_cookies": has_any_auth,
+            "has_active_session": has_active,
+            "expiry": target_expiry,
+            "platforms": active_platforms if has_active else truly_expired,
+            "is_expired": not has_active and len(truly_expired) > 0,
         }
 
     @classmethod
