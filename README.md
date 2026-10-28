@@ -44,11 +44,17 @@ Capabilities:
 - downloads the best MP4 video and best audio available
 - merges streams into one MP4 file
 
-### 2. Terminal UI Downloader
+### 2. Terminal UI Downloader (Void-Archive)
 
 Path: `youtube_tui/`
 
-Best for users who prefer working inside the terminal with a more interactive interface.
+Best for users who prefer working inside the terminal with a sleek interactive interface.
+
+**One-Click Install in any terminal:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
+```
+Once installed, run `void-archive` from any folder.
 
 Capabilities:
 
@@ -56,7 +62,7 @@ Capabilities:
 - download video (defaults to best resolution) or audio-only mode
 - automatic YouTube signature (`n` challenge decryption) decryption support using local JS runtimes
 - watch progress updates live
-- save output into a local `downloads/` folder
+- save output directly into your device's native `~/Downloads` folder
 
 ### 3. Web UI Downloader
 

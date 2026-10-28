@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 import re
 from dataclasses import dataclass
 
@@ -113,7 +114,7 @@ class VideoCard(Static):
 
 
 class YouTubeTUI(App):
-    CSS_PATH = "style.tcss"
+    CSS_PATH = Path(__file__).parent / "style.tcss"
     TITLE = "VOID-ARCHIVE v3.0"
     SUB_TITLE = "Universal Media Downloader"
 
@@ -154,7 +155,7 @@ class YouTubeTUI(App):
                 yield Static("DISCOVERY", classes="eyebrow")
                 yield Label("Queue URLs", classes="section-title")
                 yield Static(
-                    "Supported: YouTube, Facebook, Dailymotion, TikTok, Vimeo, X/Twitter, Instagram, Reddit, Twitch & 1,800+ sites.",
+                    f"Supported: YouTube, Facebook, Dailymotion, TikTok, Vimeo, X, Instagram & 1,800+ sites.  •  Downloads: {YouTubeDownloader.friendly_download_path()}",
                     id="sources-hint",
                 )
                 with Horizontal(id="discover-actions"):
@@ -168,7 +169,7 @@ class YouTubeTUI(App):
                 yield Static("RESULTS", classes="eyebrow")
                 yield Label("Discovered videos", classes="section-title")
                 yield Static(
-                    "Each successful discovery becomes its own download card.",
+                    f"Each download is saved directly to {YouTubeDownloader.friendly_download_path()}.",
                     id="results-summary",
                 )
                 with Vertical(id="results-list"):
@@ -392,8 +393,9 @@ class YouTubeTUI(App):
         if success:
             updated_job.download_failed = False
             updated_job.progress = 100
-            updated_job.status = "Download complete."
-            self.notify(f"Downloaded: {updated_job.title}", severity="information")
+            save_dest = YouTubeDownloader.friendly_download_path()
+            updated_job.status = f"Download complete ({save_dest})"
+            self.notify(f"Saved to {save_dest}: {updated_job.title}", severity="information")
         else:
             updated_job.download_failed = True
             updated_job.status = f"Download failed: {message}"

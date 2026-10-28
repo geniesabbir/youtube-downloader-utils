@@ -96,5 +96,6 @@ PY
     fi
 fi
 
+echo "Downloads location: $(python3 -c 'from downloader import YouTubeDownloader; print(YouTubeDownloader.friendly_download_path())')"
 echo "Launching terminal app..."
 python3 app.py

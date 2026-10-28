@@ -9,8 +9,55 @@ from typing import Any
 
 import yt_dlp
 
+def get_device_download_dir() -> str:
+    """Resolve the native user Downloads folder on the device (macOS, Linux, Windows).
+
+    Priority:
+    1. VOID_DOWNLOAD_DIR or DOWNLOAD_DIR environment variable
+    2. Linux XDG download directory via xdg-user-dir
+    3. User's ~/Downloads directory
+    4. Fallback to local 'downloads' directory if ~/Downloads cannot be created
+    """
+    # 1. Environment variable override
+    custom_dir = os.environ.get("VOID_DOWNLOAD_DIR") or os.environ.get("DOWNLOAD_DIR")
+    if custom_dir:
+        expanded = os.path.expanduser(custom_dir)
+        try:
+            os.makedirs(expanded, exist_ok=True)
+            return expanded
+        except OSError:
+            pass
+
+    # 2. XDG standard Downloads folder on Linux
+    if shutil.which("xdg-user-dir"):
+        try:
+            import subprocess
+
+            out = subprocess.check_output(
+                ["xdg-user-dir", "DOWNLOAD"], text=True, stderr=subprocess.DEVNULL
+            ).strip()
+            if out:
+                os.makedirs(out, exist_ok=True)
+                return out
+        except Exception:
+            pass
+
+    # 3. Native device Downloads folder (~/Downloads) on macOS, Linux, Windows
+    user_downloads = os.path.expanduser("~/Downloads")
+    try:
+        os.makedirs(user_downloads, exist_ok=True)
+        return user_downloads
+    except OSError:
+        pass
+
+    # 4. Fallback to local directory
+    fallback = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+    os.makedirs(fallback, exist_ok=True)
+    return fallback
+
+
 DEFAULT_COOKIE_EXPORT_PATH = os.path.expanduser("~/.cache/void-archive/youtube.cookies.txt")
-DEFAULT_DOWNLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "downloads")
+DEFAULT_DOWNLOAD_DIR = get_device_download_dir()
 AUTO_BROWSER_SPECS = (
     "brave",
     "chrome",
@@ -207,7 +254,8 @@ class YouTubeDownloader:
 
         ydl_opts = {
             "format": "bestvideo*+bestaudio/best",
-            "outtmpl": os.path.join(target_dir, f"%(title)s{trim_suffix}.%(ext)s"),
+            "paths": {"home": target_dir},
+            "outtmpl": f"%(title,id).100B{trim_suffix}.%(ext)s",
             "progress_hooks": [self.progress_hook],
             "postprocessor_hooks": [self.postprocessor_hook],
             "merge_output_format": "mp4",
@@ -362,6 +410,8 @@ class YouTubeDownloader:
 
     def _humanize_error(self, error: str) -> str:
         lowered = error.lower()
+        if "file name too long" in lowered or "errno 63" in lowered or "errno 36" in lowered:
+            return "File name too long for the filesystem. The output filename template has been truncated."
         if "members-only content" in lowered or "join this channel" in lowered:
             return "This video is members-only. To download it, please export signed-in cookies using the AUTH panel."
         if "sign in to confirm you're not a bot" in lowered:
@@ -445,7 +495,22 @@ class YouTubeDownloader:
 
     @classmethod
     def default_download_path(cls) -> str:
+        override = os.environ.get("VOID_DOWNLOAD_DIR") or os.environ.get("DOWNLOAD_DIR")
+        if override:
+            p = os.path.expanduser(override)
+            os.makedirs(p, exist_ok=True)
+            return p
         return DEFAULT_DOWNLOAD_DIR
+
+    @classmethod
+    def friendly_download_path(cls) -> str:
+        path = cls.default_download_path()
+        home = os.path.expanduser("~")
+        if path == home:
+            return "~"
+        if path.startswith(home + os.sep):
+            return "~" + path[len(home):]
+        return path
 
     @classmethod
     def _detect_cookie_platform(cls, domain: str) -> str | None:

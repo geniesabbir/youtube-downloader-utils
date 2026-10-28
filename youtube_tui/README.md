@@ -32,12 +32,44 @@ This version is built around isolated video jobs:
 - `ffmpeg` available on `PATH` for merge and audio extraction
 - A JavaScript runtime (`deno`, `node`, or `bun`) available on `PATH` for solving signature decryption challenges when authenticated cookies are loaded
 
-## Install
+## One-Click Terminal Install (Recommended)
+
+To install Void-Archive into any terminal without doing any extra manual setup:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
+```
+
+Or from inside this repository:
+
+```bash
+./install.sh
+```
+
+### What this does automatically:
+- Installs the isolated runtime and all dependencies to `~/.local/share/void-archive`
+- Automatically checks/installs `ffmpeg`
+- Exposes the command **`void-archive`** (alias **`youtube-tui`**) in your terminal `PATH`
+- **Binds downloads directly to your device's native Downloads folder (`~/Downloads`)**
+- Configures auto-update via `void-archive --update`
+
+Once installed, simply open any terminal and run:
+
+```bash
+void-archive
+```
+
+---
+
+## Manual Install & Local Development
+
+If you prefer to run directly from the source directory:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+./run.sh
 ```
 
 ## Run
@@ -85,7 +117,9 @@ python3 app.py
 6. If discovery fails for a card, use `Retry Discover`.
 7. If download fails for a card, use `Retry Download`.
 
-Downloaded files are saved to the `downloads/` directory.
+Downloaded files are automatically saved to your device's native **`~/Downloads`** folder.
+
+> **Tip**: You can customize the download location at any time by setting `export VOID_DOWNLOAD_DIR="/custom/path"`.
 
 ## YouTube Authentication
 

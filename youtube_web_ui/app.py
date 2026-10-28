@@ -168,7 +168,8 @@ def download_worker(url, format_id, task_id, mode):
     ydl_opts = {
         'format': format_str,
         'merge_output_format': merge_fmt,
-        'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
+        'paths': {'home': download_dir},
+        'outtmpl': '%(title,id).100B.%(ext)s',
         'progress_hooks': [lambda d: progress_hook(d, task_id)],
         'postprocessor_hooks': [lambda d: postprocessor_hook(d, task_id)],
         'quiet': True,
