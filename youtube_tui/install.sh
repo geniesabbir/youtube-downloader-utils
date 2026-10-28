@@ -19,6 +19,18 @@ INSTALL_DIR="${HOME}/.local/share/${APP_NAME}"
 BIN_DIR="${HOME}/.local/bin"
 DOWNLOADS_DIR="${HOME}/Downloads"
 
+# Detect Termux / Android environment
+IS_TERMUX=0
+if [ -n "${TERMUX_VERSION:-}" ] || [ -d "/data/data/com.termux" ]; then
+    IS_TERMUX=1
+    echo -e "${CYAN}==>${NC} Android (Termux) environment detected."
+    if [ -d "$HOME/storage/downloads" ]; then
+        DOWNLOADS_DIR="$HOME/storage/downloads"
+    elif [ -d "/storage/emulated/0/Download" ]; then
+        DOWNLOADS_DIR="/storage/emulated/0/Download"
+    fi
+fi
+
 echo -e "${CYAN}${BOLD}"
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║             VOID-ARCHIVE TUI INSTALLER               ║"
@@ -49,7 +61,10 @@ fi
 echo -e "${CYAN}==>${NC} Checking Python 3..."
 if ! command -v python3 >/dev/null 2>&1; then
     echo -e "${RED}Error: python3 is required but not installed.${NC}"
-    if [[ "${OSTYPE:-}" == "darwin"* ]] && command -v brew >/dev/null 2>&1; then
+    if [ "$IS_TERMUX" -eq 1 ] && command -v pkg >/dev/null 2>&1; then
+        echo "Attempting to install python via pkg on Termux..."
+        pkg install -y python
+    elif [[ "${OSTYPE:-}" == "darwin"* ]] && command -v brew >/dev/null 2>&1; then
         echo "Attempting to install python3 using Homebrew..."
         brew install python3
     else
@@ -77,7 +92,10 @@ if command -v ffmpeg >/dev/null 2>&1; then
     echo -e "${GREEN}✓ Found ffmpeg${NC}"
 else
     echo -e "${YELLOW}! ffmpeg not found.${NC}"
-    if [[ "${OSTYPE:-}" == "darwin"* ]] && command -v brew >/dev/null 2>&1; then
+    if [ "$IS_TERMUX" -eq 1 ] && command -v pkg >/dev/null 2>&1; then
+        echo "Installing ffmpeg via pkg on Termux..."
+        pkg install -y ffmpeg || true
+    elif [[ "${OSTYPE:-}" == "darwin"* ]] && command -v brew >/dev/null 2>&1; then
         echo "Installing ffmpeg via Homebrew (this may take a moment)..."
         brew install ffmpeg || echo "Note: ffmpeg install skipped or failed; continuing..."
     elif command -v apt-get >/dev/null 2>&1; then
@@ -137,7 +155,16 @@ set -euo pipefail
 APP_DIR="${HOME}/.local/share/void-archive"
 VENV_PYTHON="${APP_DIR}/venv/bin/python3"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
-export VOID_DOWNLOAD_DIR="${VOID_DOWNLOAD_DIR:-$HOME/Downloads}"
+
+if [ -z "${VOID_DOWNLOAD_DIR:-}" ]; then
+    if [ -d "$HOME/storage/downloads" ]; then
+        export VOID_DOWNLOAD_DIR="$HOME/storage/downloads"
+    elif [ -d "/storage/emulated/0/Download" ]; then
+        export VOID_DOWNLOAD_DIR="/storage/emulated/0/Download"
+    else
+        export VOID_DOWNLOAD_DIR="$HOME/Downloads"
+    fi
+fi
 
 if [ "${1:-}" = "--update" ]; then
     echo "Updating Void-Archive dependencies and yt-dlp engine..."
@@ -201,6 +228,13 @@ chmod +x "$LAUNCHER_PATH"
 # Create friendly aliases
 ln -sf "$LAUNCHER_PATH" "$BIN_DIR/youtube-tui"
 ln -sf "$LAUNCHER_PATH" "$BIN_DIR/void"
+
+# On Android Termux, also link to $PREFIX/bin for zero-config PATH access
+if [ "$IS_TERMUX" -eq 1 ] && [ -n "${PREFIX:-}" ] && [ -w "${PREFIX}/bin" ]; then
+    ln -sf "$LAUNCHER_PATH" "${PREFIX}/bin/void-archive"
+    ln -sf "$LAUNCHER_PATH" "${PREFIX}/bin/youtube-tui"
+    ln -sf "$LAUNCHER_PATH" "${PREFIX}/bin/void"
+fi
 
 # 8. Configure Shell PATH if needed
 PATH_ALREADY_INCLUDED=0

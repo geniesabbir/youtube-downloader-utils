@@ -34,14 +34,19 @@ This version is built around isolated video jobs:
 
 ## One-Click Terminal Install (Recommended)
 
-To install Void-Archive into any terminal without doing any extra manual setup:
-
+### macOS & Linux
 ```bash
 curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
 ```
 
-Or from inside this repository:
+### Android (via Termux)
+```bash
+termux-setup-storage
+pkg update && pkg install -y python ffmpeg git
+curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
+```
 
+### Local Repository Install
 ```bash
 ./install.sh
 ```
@@ -50,7 +55,7 @@ Or from inside this repository:
 - Installs the isolated runtime and all dependencies to `~/.local/share/void-archive`
 - Automatically checks/installs `ffmpeg`
 - Exposes the command **`void-archive`** (alias **`youtube-tui`**) in your terminal `PATH`
-- **Binds downloads directly to your device's native Downloads folder (`~/Downloads`)**
+- **Binds downloads directly to your device's native Downloads folder** (`~/Downloads` or Android `/storage/emulated/0/Download`)
 - Configures auto-update via `void-archive --update`
 
 Once installed, simply open any terminal and run:
@@ -105,21 +110,16 @@ source venv/bin/activate
 python3 app.py
 ```
 
-## Usage
+## How to Use Void-Archive
 
-1. Paste one or more YouTube URLs into `DISCOVER URLS`.
-2. Separate URLs with spaces or commas.
-3. Click `ANALYZE URLS`.
-4. Wait for discovery jobs to complete.
-5. For each discovered video card, choose:
-   - `Download Video`
-   - `Download Audio`
-6. If discovery fails for a card, use `Retry Discover`.
-7. If download fails for a card, use `Retry Download`.
+1. **Queue URLs**: Paste one or more links into the `Queue URLs` input box. Separate multiple URLs using spaces or commas (supported: YouTube, Facebook, TikTok, Vimeo, X/Twitter, Instagram, Reddit, Twitch, and 1,800+ sites).
+2. **Analyze**: Click `ANALYZE URLS` or press Enter. The app extracts video metadata, authors, durations, and displays individual cards for each video.
+3. **Optional Trimming**: If you only want a clip, enter `Start` (e.g. `00:30` or `30`) and `End` (e.g. `02:15` or `135`) timestamps. Leave empty to download the whole video.
+4. **Download**: Choose `Download Video` (highest quality merged MP4) or `Download Audio` (192kbps MP3). Watch the isolated progress bar with live transfer rate and percentage.
+5. **Retries**: If network issues occur, use `Retry Discover` or `Retry Download` on that specific card without restarting the app.
+6. **Output Location**: Downloaded files are automatically saved to your device's native **`~/Downloads`** folder (or `/storage/emulated/0/Download` on Android).
 
-Downloaded files are automatically saved to your device's native **`~/Downloads`** folder.
-
-> **Tip**: You can customize the download location at any time by setting `export VOID_DOWNLOAD_DIR="/custom/path"`.
+> **Custom Path**: You can override the download folder at any time by setting `export VOID_DOWNLOAD_DIR="/path/to/folder"`.
 
 ## YouTube Authentication
 

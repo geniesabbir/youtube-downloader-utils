@@ -10,13 +10,14 @@ from typing import Any
 import yt_dlp
 
 def get_device_download_dir() -> str:
-    """Resolve the native user Downloads folder on the device (macOS, Linux, Windows).
+    """Resolve the native user Downloads folder on the device (macOS, Linux, Android/Termux, Windows).
 
     Priority:
     1. VOID_DOWNLOAD_DIR or DOWNLOAD_DIR environment variable
-    2. Linux XDG download directory via xdg-user-dir
-    3. User's ~/Downloads directory
-    4. Fallback to local 'downloads' directory if ~/Downloads cannot be created
+    2. Android (Termux) internal storage Downloads folder
+    3. Linux XDG download directory via xdg-user-dir
+    4. User's ~/Downloads directory
+    5. Fallback to local 'downloads' directory if ~/Downloads cannot be created
     """
     # 1. Environment variable override
     custom_dir = os.environ.get("VOID_DOWNLOAD_DIR") or os.environ.get("DOWNLOAD_DIR")
@@ -28,7 +29,16 @@ def get_device_download_dir() -> str:
         except OSError:
             pass
 
-    # 2. XDG standard Downloads folder on Linux
+    # 2. Android (Termux) internal storage Downloads folder
+    for android_path in (
+        os.path.expanduser("~/storage/downloads"),
+        "/storage/emulated/0/Download",
+        "/sdcard/Download",
+    ):
+        if os.path.isdir(android_path) and os.access(android_path, os.W_OK):
+            return android_path
+
+    # 3. Linux XDG standard Downloads folder
     if shutil.which("xdg-user-dir"):
         try:
             import subprocess
@@ -505,6 +515,8 @@ class YouTubeDownloader:
     @classmethod
     def friendly_download_path(cls) -> str:
         path = cls.default_download_path()
+        if "/storage/emulated/0/" in path:
+            return path.replace("/storage/emulated/0/", "Internal Storage/")
         home = os.path.expanduser("~")
         if path == home:
             return "~"
