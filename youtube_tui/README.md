@@ -39,6 +39,16 @@ This version is built around isolated video jobs:
 curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
 ```
 
+### Windows (PowerShell or Command Prompt)
+In PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.ps1 | iex
+```
+*Or in Command Prompt (cmd.exe):*
+```cmd
+powershell -c "irm https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.ps1 | iex"
+```
+
 ### Android (via Termux)
 ```bash
 termux-setup-storage
@@ -47,9 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-util
 ```
 
 ### Local Repository Install
-```bash
-./install.sh
-```
+- **macOS / Linux / Termux**: `./install.sh`
+- **Windows**: `install.bat` or `.\install.ps1`
 
 ### What this does automatically:
 - Installs the isolated runtime and all dependencies to `~/.local/share/void-archive`

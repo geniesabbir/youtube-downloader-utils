@@ -59,22 +59,32 @@ fi
 
 # 2. Check Python 3
 echo -e "${CYAN}==>${NC} Checking Python 3..."
-if ! command -v python3 >/dev/null 2>&1; then
-    echo -e "${RED}Error: python3 is required but not installed.${NC}"
+PYTHON_BIN=""
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python)"
+elif command -v py >/dev/null 2>&1; then
+    PYTHON_BIN="py -3"
+fi
+
+if [ -z "$PYTHON_BIN" ]; then
+    echo -e "${RED}Error: Python 3 is required but not installed.${NC}"
     if [ "$IS_TERMUX" -eq 1 ] && command -v pkg >/dev/null 2>&1; then
         echo "Attempting to install python via pkg on Termux..."
         pkg install -y python
+        PYTHON_BIN="$(command -v python)"
     elif [[ "${OSTYPE:-}" == "darwin"* ]] && command -v brew >/dev/null 2>&1; then
         echo "Attempting to install python3 using Homebrew..."
         brew install python3
+        PYTHON_BIN="$(command -v python3)"
     else
         echo "Please install Python 3.10 or newer from https://python.org or your package manager."
         exit 1
     fi
 fi
 
-PYTHON_BIN="$(command -v python3)"
-PY_VER="$("$PYTHON_BIN" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+PY_VER="$($PYTHON_BIN -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 echo -e "${GREEN}✓ Found Python ${PY_VER} (${PYTHON_BIN})${NC}"
 
 # 3. Check venv support
@@ -136,13 +146,21 @@ fi
 # 6. Setup Isolated Virtual Environment
 echo -e "${CYAN}==>${NC} Setting up isolated Python environment..."
 if [ ! -d "$INSTALL_DIR/venv" ]; then
-    "$PYTHON_BIN" -m venv "$INSTALL_DIR/venv"
+    $PYTHON_BIN -m venv "$INSTALL_DIR/venv"
 fi
 
-"$INSTALL_DIR/venv/bin/python3" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+VENV_PYTHON=""
+for candidate in "$INSTALL_DIR/venv/bin/python3" "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/venv/Scripts/python.exe"; do
+    if [ -f "$candidate" ]; then
+        VENV_PYTHON="$candidate"
+        break
+    fi
+done
+
+"$VENV_PYTHON" -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
 
 echo -e "${CYAN}==>${NC} Installing dependencies (Textual, yt-dlp, mutagen, etc.)..."
-"$INSTALL_DIR/venv/bin/python3" -m pip install -r "$INSTALL_DIR/requirements.txt" >/dev/null
+"$VENV_PYTHON" -m pip install -r "$INSTALL_DIR/requirements.txt" >/dev/null
 
 # 7. Create Global Executable Launcher
 LAUNCHER_PATH="$BIN_DIR/void-archive"
@@ -153,7 +171,13 @@ cat << 'EOF' > "$LAUNCHER_PATH"
 set -euo pipefail
 
 APP_DIR="${HOME}/.local/share/void-archive"
-VENV_PYTHON="${APP_DIR}/venv/bin/python3"
+VENV_PYTHON=""
+for candidate in "${APP_DIR}/venv/bin/python3" "${APP_DIR}/venv/bin/python" "${APP_DIR}/venv/Scripts/python.exe"; do
+    if [ -f "$candidate" ]; then
+        VENV_PYTHON="$candidate"
+        break
+    fi
+done
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 if [ -z "${VOID_DOWNLOAD_DIR:-}" ]; then

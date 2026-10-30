@@ -15,6 +15,13 @@ Install the interactive Terminal UI (**Void-Archive**) into any terminal with ze
 curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.sh | bash
 ```
 
+### Windows (PowerShell or Command Prompt)
+Open PowerShell (or Command Prompt) and run:
+```powershell
+irm https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.ps1 | iex
+```
+*(In Command Prompt `cmd.exe`, you can also paste: `powershell -c "irm https://raw.githubusercontent.com/geniesabbir/youtube-downloader-utils/main/youtube_tui/install.ps1 | iex"`)*
+
 ### Android (via Termux)
 ```bash
 termux-setup-storage
@@ -24,9 +31,8 @@ curl -fsSL https://raw.githubusercontent.com/geniesabbir/youtube-downloader-util
 
 ### Local Repository Install
 If you have already cloned the repository:
-```bash
-./install.sh
-```
+- **macOS / Linux / Termux**: `./install.sh`
+- **Windows**: `install.bat` or `.\install.ps1`
 
 Once installed, simply open any terminal window and type:
 ```bash
